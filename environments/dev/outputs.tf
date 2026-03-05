@@ -86,5 +86,5 @@ output "configure_kubectl" {
 # Bastion host
 output "bastion_host_public_ip" {
   description = "Public IP address of the bastion host"
-  value       = module.bastion.bastion_host_public_ip
+  value       = module.bastion.bastion_public_ip
 }
