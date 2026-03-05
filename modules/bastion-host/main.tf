@@ -1,6 +1,11 @@
-data "aws_ami" "amazon_linux" {
-  owners      = ["amazon"]
-  most_recent = true # Ensuring that Terraform selects the latest matching resource
+data "aws_ami" "ubuntu" {
+  owners      = ["099720109477"] # Canonical (Ubuntu official publisher on AWS)
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
 
   filter {
     name   = "architecture"
@@ -8,18 +13,14 @@ data "aws_ami" "amazon_linux" {
   }
 
   filter {
-    name   = "owner-alias"
-    values = ["amazon"]
-  }
-
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-kernel-5.10-hvm*"]
+    name   = "virtualization-type"
+    values = ["hvm"]
   }
 }
 
+
 resource "aws_instance" "bastion_host" {
-  ami                         = data.aws_ami.amazon_linux.id
+  ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.bastion_instance_type
   key_name                    = var.ssh_key_name
   subnet_id                   = var.subnet_id
