@@ -17,3 +17,7 @@ node_capacity_type  = "ON_DEMAND"
 node_desired_size   = 2
 node_min_size       = 1
 node_max_size       = 3
+
+# Bastion Host 
+bastion_ssh_key_name     = "bastion-host"
+bastion_allowed_ssh_cidr = "0.0.0.0/0"
