@@ -2,6 +2,8 @@ locals {
   cluster_name = var.cluster_name
 }
 
+# ci-test: trigger PR pipeline validation
+
 # CloudWatch Log Group for EKS Cluster Logs
 resource "aws_cloudwatch_log_group" "eks_cluster_logs" {
   name              = "/aws/eks/${local.cluster_name}/cluster"
