@@ -24,11 +24,7 @@ variable "ssh_key_name" {
 variable "allowed_ssh_cidr" {
   type        = string
   description = "CIDR block allowed to SSH into the Bastion Host"
-
-  validation {
-    condition     = var.allowed_ssh_cidr != "0.0.0.0/0"
-    error_message = "allowed_ssh_cidr must not be 0.0.0.0/0 — provide a specific IP or CIDR."
-  }
+  default     = "0.0.0.0/0"
 }
 
 variable "vpc_id" {
