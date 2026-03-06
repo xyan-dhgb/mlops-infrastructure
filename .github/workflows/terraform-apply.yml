@@ -36,6 +36,7 @@ jobs:
 
     steps:
       - name: Verify running from dev branch
+        working-directory: ${{ github.workspace }}
         run: |
           if [ "${{ github.ref_name }}" != "dev" ]; then
             echo "ERROR: This workflow must be run from the 'dev' branch."
