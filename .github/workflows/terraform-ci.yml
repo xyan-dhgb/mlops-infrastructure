@@ -1,117 +1,128 @@
 name: "Terraform CI - PR Validation"
 
 on:
-    pull_request:
-        branches:
-            - dev
-        paths:
-            - "environments/dev/**"
-            - "modules/**"
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - "environments/dev/**"
+      - "modules/**"
 
 permissions:
-    id-token: write
-    contents: read
-    pull-requests: write
+  id-token: write
+  contents: read
+  pull-requests: write
 
 env:
-    TERRAFORM_VERSION: "1.10.5"
-    AWS_REGION: "ap-southeast-1"
-    WORKING_DIR: "environments/dev"
+  TERRAFORM_VERSION: "1.10.5"
+  AWS_REGION: "ap-southeast-1"
+  WORKING_DIR: "environments/dev"
 
 jobs:
-    terraform-ci:
-        name: "Infrastructure as Code Validataion"
-        runs-on: ubuntu-latest
-        defaults:
-            run:
-                working-directory: ${{ env.WORKING_DIR }}
+  terraform-ci:
+    name: "Infrastructure as Code Validataion"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
 
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            - name: Set up Terraform
-              uses: hashicorp/setup-terraform@v3
-              with:
-                  terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-            - name: Configure AWS Credentials
-              uses: aws-actions/configure-aws-credentials@v4
-              with:
-                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-                  aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-            - name: Terraform Init
-              id: init
-              run: terraform init -reconfigure
+      - name: Terraform Init
+        id: init
+        run: terraform init -reconfigure
 
-            - name: Terraform Format Check
-              id: fmt
-              run: terraform fmt -check -recursive -diff ../..
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive -diff ../..
 
-            - name: Terraform Validate
-              id: validate
-              run: terraform validate -no-color
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
 
-            - name: Terraform Plan
-              id: plan
-              run: terraform plan -no-color -input=false 2>&1 | tee plan.txt
-              continue-on-error: true
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan.txt
+        continue-on-error: true
 
-            - name: Post plan comment on PR
-              uses: actions/github-script@v7
-              if: github.event_name == 'pull_request'
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const fs = require('fs');
-                      const plan = fs.readFileSync('environments/dev/plan.txt', 'utf8');
-                      const maxLen = 65000;
-                      const planText = plan.length > maxLen ? plan.substring(0, maxLen) + '\n...(truncated)' : plan;
+      - name: Upload plan to S3
+        if: steps.plan.outcome == 'success'
+        run: |
+          aws s3 cp tfplan s3://kltn-tfstate-dev/plans/dev/${{ github.sha }}/tfplan
+          echo "Plan uploaded to S3 with key: plans/dev/${{ github.sha }}/tfplan"
 
-                      const body = `##  Terraform Plan — DEV Environment
-                      | Step | Result |
-                      |------|--------|
-                      | Format | \`${{ steps.fmt.outcome }}\` |
-                      | Validate | \`${{ steps.validate.outcome }}\` |
-                      | Plan | \`${{ steps.plan.outcome }}\` |
+      - name: Post plan comment on PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('environments/dev/plan.txt', 'utf8');
+            const maxLen = 65000;
+            const planText = plan.length > maxLen ? plan.substring(0, maxLen) + '\n...(truncated)' : plan;
 
-                      <details><summary>Show Plan Output</summary>
+            const body = `##  Terraform Plan — DEV Environment
+             | Step | Result |
+             |------|--------|
+             | Format | \`${{ steps.fmt.outcome }}\` |
+             | Validate | \`${{ steps.validate.outcome }}\` |
+             | Plan | \`${{ steps.plan.outcome }}\` |
 
-                      \`\`\`
-                      ${planText}
-                      \`\`\`
-                      </details>
+             <details><summary>Show Plan Output</summary>
 
-                      >*Commit: \`${{ github.sha }}\`*`;
+             \`\`\`
+             ${planText}
+             \`\`\`
+             </details>
 
-                      const { data: comments } = await github.rest.issues.listComments({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: context.issue.number,
-                      });
+             ---
+             > **To apply this plan**, trigger the [Terraform Apply](../actions/workflows/terraform-apply.yml) workflow and enter:
+             > - Environment: \`dev\`
+             > - Plan Commit SHA: \`${{ github.sha }}\`
 
-                      const existing = comments.find(c =>
-                        c.user.type === 'Bot' && c.body.includes('Terraform Plan — DEV Environment')
-                      );
+             >*Commit: \`${{ github.sha }}\`*`;
 
-                      if (existing) {
-                        await github.rest.issues.updateComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          comment_id: existing.id,
-                          body,
-                        });
-                      } else {
-                        await github.rest.issues.createComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                          body,
-                        });
-                      }
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
 
-            - name: Fail if plan failed
-              if: steps.plan.outcome == 'failure'
-              run: exit 1
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Terraform Plan — DEV Environment')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
