@@ -35,6 +35,15 @@ jobs:
         working-directory: environments/${{ github.event.inputs.environment }}
 
     steps:
+      - name: Verify running from dev branch
+        run: |
+          if [ "${{ github.ref_name }}" != "dev" ]; then
+            echo "ERROR: This workflow must be run from the 'dev' branch."
+            echo "Current branch: ${{ github.ref_name }}"
+            exit 1
+          fi
+          echo "Branch check passed: running on 'dev'"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
