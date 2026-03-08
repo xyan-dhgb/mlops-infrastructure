@@ -67,3 +67,15 @@ variable "node_max_size" {
   description = "Maximum number of worker nodes"
   type        = number
 }
+
+# Bastion Host Configuration
+variable "bastion_ssh_key_name" {
+  description = "Name of the EC2 Key Pair for SSH access to Bastion Host"
+  type        = string
+}
+
+variable "bastion_allowed_ssh_cidr" {
+  description = "CIDR block allowed to SSH into the Bastion Host"
+  type        = string
+  default     = "0.0.0.0/0"
+}
