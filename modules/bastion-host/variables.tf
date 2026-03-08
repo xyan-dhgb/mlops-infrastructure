@@ -1,7 +1,7 @@
 variable "bastion_name" {
   type        = string
-  default     = "KLTN-Bastion-Host-v2"
-  description = "The name of the Bastion Host"
+  default     = "KLTN-Bastion-Host"
+  description = "Base name for the Bastion Host instances"
 }
 
 variable "bastion_instance_type" {
@@ -10,9 +10,9 @@ variable "bastion_instance_type" {
   description = "The instance type of the Bastion Host"
 }
 
-variable "subnet_id" {
-  type        = string
-  description = "Public subnet ID where the Bastion Host will be deployed"
+variable "subnet_ids" {
+  type        = list(string)
+  description = "List of public subnet IDs where Bastion Hosts will be deployed (one per subnet)"
 }
 
 variable "ssh_key_name" {
@@ -31,4 +31,3 @@ variable "vpc_id" {
   type        = string
   description = "The ID of the VPC"
 }
-
