@@ -83,8 +83,8 @@ output "configure_kubectl" {
   value       = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ap-southeast-1"
 }
 
-# Bastion host
-output "bastion_host_public_ip" {
-  description = "Public IP address of the bastion host"
-  value       = module.bastion.bastion_public_ip
+# Bastion Host
+output "bastion_public_ips" {
+  description = "Public IP addresses of all Bastion Hosts"
+  value       = module.bastion.bastion_public_ips
 }
