@@ -18,24 +18,10 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-
-resource "aws_instance" "bastion_host" {
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = var.bastion_instance_type
-  key_name                    = var.ssh_key_name
-  subnet_id                   = var.subnet_id
-  associate_public_ip_address = true
-
-  vpc_security_group_ids = [aws_security_group.allow_ssh.id]
-
-  tags = {
-    Name = var.bastion_name
-  }
-}
-
+# Single SSH Security Group shared by all bastion hosts
 resource "aws_security_group" "allow_ssh" {
   name_prefix = "bastion-ssh-"
-  description = "Allow SSH inbound traffic to Bastion Host"
+  description = "Allow SSH inbound traffic to Bastion Hosts"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -63,3 +49,19 @@ resource "aws_security_group" "allow_ssh" {
   }
 }
 
+# One bastion host per subnet for high availability
+resource "aws_instance" "bastion_host" {
+  for_each = { for i, id in var.subnet_ids : tostring(i) => id }
+
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.bastion_instance_type
+  key_name                    = var.ssh_key_name
+  subnet_id                   = each.value
+  associate_public_ip_address = true
+
+  vpc_security_group_ids = [aws_security_group.allow_ssh.id]
+
+  tags = {
+    Name = "${var.bastion_name}-${tonumber(each.key) + 1}"
+  }
+}
