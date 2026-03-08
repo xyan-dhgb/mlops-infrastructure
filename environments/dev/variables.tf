@@ -68,14 +68,13 @@ variable "node_max_size" {
   type        = number
 }
 
-# Bastion Host Configuration
+# Bastion Host
 variable "bastion_ssh_key_name" {
-  description = "Name of the EC2 Key Pair for SSH access to Bastion Host"
+  description = "Name of the EC2 Key Pair for Bastion Host SSH access"
   type        = string
 }
 
 variable "bastion_allowed_ssh_cidr" {
-  description = "CIDR block allowed to SSH into the Bastion Host"
+  description = "Your public IP in CIDR notation to allow SSH (e.g. 203.0.113.50/32)"
   type        = string
-  default     = "0.0.0.0/0"
 }
