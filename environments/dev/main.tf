@@ -44,8 +44,8 @@ module "bastion" {
 module "argocd" {
   source = "../../modules/argocd"
 
-  cluster_name  = module.eks.cluster_name
-  chart_version = "7.5.2"
+  cluster_name         = module.eks.cluster_name
+  argocd_chart_version = "7.5.2"
 
   depends_on = [module.eks]
 }
