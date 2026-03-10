@@ -40,3 +40,13 @@ module "bastion" {
   ssh_key_name     = var.bastion_ssh_key_name
   allowed_ssh_cidr = var.bastion_allowed_ssh_cidr
 }
+
+module "argocd" {
+  source = "../../modules/argocd"
+
+  cluster_name  = module.eks.cluster_name
+  chart_version = "7.5.2"
+
+  depends_on = [module.eks]
+}
+
