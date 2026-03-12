@@ -116,3 +116,18 @@ resource "aws_eks_node_group" "main" {
     Name = "${local.cluster_name}-node-group"
   }
 }
+
+# OIDC (OpenID Connect) Provider for IRSA (AWS IAM Roles for Service Accounts)
+# Get the EKS cluster OIDC issuer URL through the SSL/TLS certificate
+data "tls_certificate" "eks" {
+  # This block checks that URL, downloads the security certificate, and extracts a hash code called a Thumbprint (digital fingerprint).
+  url = aws_eks_cluster.main.identity[0].oidc[0].issuer
+}
+
+# Register the OIDC provider with AWS IAM
+resource "aws_iam_openid_connect_provider" "eks" {
+  client_id_list  = ["sts.amazonaws.com"]                                       # STS: Security Token Service
+  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint] # Get the thumbprint from the certificate
+  url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
+}
+
