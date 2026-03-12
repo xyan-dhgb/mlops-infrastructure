@@ -61,6 +61,8 @@ resource "aws_instance" "bastion_host" {
 
   vpc_security_group_ids = [aws_security_group.allow_ssh.id]
 
+  user_data = filebase64("${path.module}/user_data.sh")
+
   tags = {
     Name = "${var.bastion_name}-${tonumber(each.key) + 1}"
   }
