@@ -50,3 +50,12 @@ module "argocd" {
   depends_on = [module.eks]
 }
 
+module "load_balancer_controller" {
+  source = "../../modules/load-balancer-controller"
+
+  cluster_name      = module.eks.cluster_name
+  oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  oidc_issuer_url   = module.eks.cluster_oidc_issuer_url
+
+  depends_on = [module.eks]
+}
