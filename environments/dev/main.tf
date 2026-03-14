@@ -84,20 +84,7 @@ output "ecr_registry_id" {
   value       = module.ecr.registry_id
 }
 
-output "ecr_preprocessing_url" {
-  description = "ECR URL for preprocessing image"
-  value       = module.ecr.preprocessing_repository_url
-}
 
-output "ecr_training_url" {
-  description = "ECR URL for TensorFlow training image"
-  value       = module.ecr.training_repository_url
-}
-
-output "ecr_serving_url" {
-  description = "ECR URL for TensorFlow Serving image"
-  value       = module.ecr.serving_repository_url
-}
 
 
 
