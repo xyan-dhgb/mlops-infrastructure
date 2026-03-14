@@ -1,0 +1,49 @@
+# ── Dockerfile.serving ───────────────────────────────────────────────────────
+# Lightweight inference/serving image (FastAPI + model artifacts)
+# Usage: docker build -f Dockerfile.serving -t mlops-serving .
+# ─────────────────────────────────────────────────────────────────────────────
+
+ARG PYTHON_VERSION=3.11
+ARG BUILD_SHA=unknown
+
+# ── Stage 1: dependency builder ───────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use serving-only requirements (no heavy training deps like torch-cuda)
+COPY requirements-serving.txt .
+RUN pip install --upgrade pip \
+    && pip install --prefix=/install --no-cache-dir -r requirements-serving.txt
+
+# ── Stage 2: runtime image ────────────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+ARG BUILD_SHA
+ENV BUILD_SHA=${BUILD_SHA} \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PORT=8080
+
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
+COPY src/ ./src/
+
+RUN useradd --no-create-home --shell /bin/false mluser \
+    && chown -R mluser:mluser /app
+USER mluser
+
+EXPOSE 8080
+
+LABEL org.opencontainers.image.revision=${BUILD_SHA} \
+      org.opencontainers.image.title="mlops-serving"
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
+
+ENTRYPOINT ["python", "-m", "uvicorn", "src.serve:app", "--host", "0.0.0.0", "--port", "8080"]
