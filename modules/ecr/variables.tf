@@ -1,5 +1,5 @@
 variable "project_name" {
-  description = "Name of the ML project (used as ECR repo prefix)"
+  description = "ML project name — used as ECR repository prefix (e.g. 'mlops')"
   type        = string
 }
 
@@ -13,7 +13,7 @@ variable "environment" {
 }
 
 variable "image_tag_mutability" {
-  description = "Image tag mutability: MUTABLE or IMMUTABLE"
+  description = "ECR image tag mutability: MUTABLE or IMMUTABLE"
   type        = string
   default     = "MUTABLE"
   validation {
@@ -23,25 +23,25 @@ variable "image_tag_mutability" {
 }
 
 variable "scan_on_push" {
-  description = "Enable image vulnerability scanning on push"
+  description = "Enable ECR image vulnerability scanning on every push"
   type        = bool
   default     = true
 }
 
 variable "max_image_count" {
-  description = "Max number of tagged images to retain per repository"
+  description = "Maximum number of tagged images to retain per repository"
   type        = number
   default     = 10
 }
 
 variable "allowed_account_ids" {
-  description = "Optional list of AWS account IDs allowed to pull images (cross-account)"
+  description = "Optional AWS account IDs allowed to pull images cross-account"
   type        = list(string)
   default     = null
 }
 
 variable "tags" {
-  description = "Additional tags to apply to all resources"
+  description = "Additional tags applied to all ECR resources"
   type        = map(string)
   default     = {}
 }

@@ -1,15 +1,15 @@
 # environments/dev/ecr.tf
-# ---------------------------------------------------------
-# Integrate this block into your existing environments/dev
-# main.tf, or keep it as a separate ecr.tf file.
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Drop this file into environments/dev/ alongside your existing main.tf.
+# It provisions 3 ECR repositories: preprocessing, training, serving.
+# ─────────────────────────────────────────────────────────────────────────────
 
 module "ecr" {
   source = "../../modules/ecr"
 
-  project_name         = var.project_name          # e.g. "mlops"
-  environment          = var.environment            # "dev"
-  image_tag_mutability = "MUTABLE"                  # dev: allow overwriting tags
+  project_name         = var.project_name   # e.g. "mlops" — add to variables.tf if missing
+  environment          = var.environment    # "dev"
+  image_tag_mutability = "MUTABLE"          # dev: allow tag overwrites
   scan_on_push         = true
   max_image_count      = 10
 
@@ -17,21 +17,31 @@ module "ecr" {
   # allowed_account_ids = ["123456789012"]
 
   tags = {
-    Project   = var.project_name
-    Team      = "mlops"
+    Project    = var.project_name
+    Team       = "mlops"
+    Framework  = "tensorflow"
     CostCenter = "ml-infra"
   }
 }
 
-# ---- Expose outputs to use in CI/CD ----
+# ── Outputs — copy these values into GitHub Actions → Repo Variables ──────────
+
+output "ecr_registry_id" {
+  description = "ECR registry ID (= AWS account ID)"
+  value       = module.ecr.registry_id
+}
+
+output "ecr_preprocessing_url" {
+  description = "ECR URL for preprocessing image"
+  value       = module.ecr.preprocessing_repository_url
+}
+
 output "ecr_training_url" {
-  value = module.ecr.training_repository_url
+  description = "ECR URL for TensorFlow training image"
+  value       = module.ecr.training_repository_url
 }
 
 output "ecr_serving_url" {
-  value = module.ecr.serving_repository_url
-}
-
-output "ecr_registry_id" {
-  value = module.ecr.registry_id
+  description = "ECR URL for TensorFlow Serving image"
+  value       = module.ecr.serving_repository_url
 }

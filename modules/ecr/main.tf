@@ -1,12 +1,16 @@
 locals {
   repositories = {
+    preprocessing = {
+      name        = "${var.project_name}-preprocessing"
+      description = "Data preprocessing & feature engineering for ${var.project_name}"
+    }
     training = {
       name        = "${var.project_name}-training"
-      description = "ML training image for ${var.project_name}"
+      description = "TensorFlow/Keras model training for ${var.project_name}"
     }
     serving = {
       name        = "${var.project_name}-serving"
-      description = "ML serving/inference image for ${var.project_name}"
+      description = "TensorFlow Serving / inference API for ${var.project_name}"
     }
   }
 }
@@ -30,10 +34,11 @@ resource "aws_ecr_repository" "this" {
     Description = each.value.description
     Environment = var.environment
     ManagedBy   = "terraform"
+    Framework   = "tensorflow"
   })
 }
 
-# Lifecycle policy — keep last N images, expire untagged after 1 day
+# Lifecycle policy — expire untagged in 1 day, keep last N tagged
 resource "aws_ecr_lifecycle_policy" "this" {
   for_each   = aws_ecr_repository.this
   repository = each.value.name
@@ -66,7 +71,7 @@ resource "aws_ecr_lifecycle_policy" "this" {
   })
 }
 
-# Repository policy — allow cross-account pull (optional, controlled by var)
+# Optional cross-account pull policy
 resource "aws_ecr_repository_policy" "this" {
   for_each   = var.allowed_account_ids != null ? aws_ecr_repository.this : {}
   repository = each.value.name
