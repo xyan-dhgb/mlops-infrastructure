@@ -1,11 +1,11 @@
 locals {
   repositories = {
     training = {
-      name        = "${var.project_name}-training"
+      name        = lower("${var.project_name}-training")
       description = "ML training image for ${var.project_name}"
     }
     serving = {
-      name        = "${var.project_name}-serving"
+      name        = lower("${var.project_name}-serving")
       description = "ML serving/inference image for ${var.project_name}"
     }
   }
