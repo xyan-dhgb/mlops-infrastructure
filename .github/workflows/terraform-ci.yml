@@ -21,7 +21,7 @@ env:
 jobs:
   terraform-ci:
     name: "Infrastructure as Code Validataion"
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, bastion]
     defaults:
       run:
         working-directory: ${{ env.WORKING_DIR }}
