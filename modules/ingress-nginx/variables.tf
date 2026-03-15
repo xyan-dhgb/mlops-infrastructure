@@ -1,7 +1,7 @@
 variable "ingress_name" {
   description = "Name of the ingress-nginx"
   type        = string
-  default     = "ingress_nginx"
+  default     = "ingress-nginx"
 }
 
 variable "cluster_name" {
