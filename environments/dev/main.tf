@@ -86,6 +86,3 @@ output "ecr_registry_id" {
 
 
 
-
-
-
