@@ -84,3 +84,8 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "ingress_nginx_chart_version" {
+  description = "Version of the ingress-nginx Helm chart to deploy"
+  type        = string
+}

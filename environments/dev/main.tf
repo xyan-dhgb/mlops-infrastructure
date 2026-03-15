@@ -60,6 +60,19 @@ module "load_balancer_controller" {
   depends_on = [module.eks]
 }
 
+module "ingress_nginx" {
+  source = "../../modules/ingress-nginx"
+
+  cluster_name  = module.eks.cluster_name
+  chart_version = var.ingress_nginx_chart_version
+
+  # The AWS Load Balancer Controller must be running before Nginx is deployed,
+  # otherwise the NLB Service annotation will not be reconciled and the
+  # controller pod will remain in a pending state waiting for an external IP.
+  depends_on = [module.load_balancer_controller]
+
+}
+
 module "ecr" {
   source = "../../modules/ecr"
 
@@ -68,9 +81,6 @@ module "ecr" {
   image_tag_mutability = "MUTABLE"
   scan_on_push         = true
   max_image_count      = 10
-
-  # Uncomment to allow another AWS account to pull images:
-  # allowed_account_ids = ["123456789012"]
 
   tags = {
     Project    = var.project_name
@@ -83,6 +93,3 @@ output "ecr_registry_id" {
   description = "ECR registry ID (= AWS account ID)"
   value       = module.ecr.registry_id
 }
-
-
-
