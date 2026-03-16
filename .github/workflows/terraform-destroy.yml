@@ -73,25 +73,32 @@ jobs:
         id: init
         run: terraform init -reconfigure
 
-      - name: Configure kubectl
-        run: |
-          aws eks update-kubeconfig \
-            --region ${{ env.AWS_REGION }} \
-            --name mlops-infr-dev-eks
-
       - name: Cleanup Kubernetes-managed AWS resources
         run: |
-          echo "==> Delete ingress-nginx Service (removes NLB)"
+          CLUSTER_NAME="mlops-infr-dev-eks"
+
+          echo "==> Checking if EKS cluster '$CLUSTER_NAME' exists..."
+          if ! aws eks describe-cluster --name "$CLUSTER_NAME" --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+            echo "Cluster '$CLUSTER_NAME' not found — skipping K8s cleanup (nothing to clean up)."
+            exit 0
+          fi
+
+          echo "==> Cluster found. Configuring kubectl..."
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name "$CLUSTER_NAME"
+
+          echo "==> Delete ingress-nginx Service (triggers NLB deletion via AWS LB Controller)"
           kubectl delete svc -n ingress-nginx ingress-nginx-controller --ignore-not-found --timeout=120s
 
-          echo "==> Wait for NLB to be fully deleted by AWS LB Controller"
+          echo "==> Waiting 60s for AWS LB Controller to fully delete the NLB..."
           sleep 60
 
-          echo "==> Delete all Helm releases (ingress-nginx, argocd...)"
+          echo "==> Uninstall Helm releases (ingress-nginx, argocd)"
           helm uninstall ingress-nginx -n ingress-nginx --ignore-not-found || true
           helm uninstall argocd -n argocd --ignore-not-found || true
 
-          echo "==> Cleanup done"
+          echo "==> K8s cleanup done"
 
       - name: Terraform Plan Destroy
         id: plan
