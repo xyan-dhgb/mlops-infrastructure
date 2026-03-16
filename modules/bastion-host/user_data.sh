@@ -4,7 +4,7 @@ set -euo pipefail   # Stop immediately if there is an error, an unset variable, 
 
 # Log to file for debugging
 exec > /var/log/user_data_bootstrap.log 2>&1
-echo "=== Bootstrap started at $(date) ==="
+echo "=== Bootstrap started at $$(date) ==="
 
 # 1. Update package list
 apt-get update -y
@@ -29,8 +29,8 @@ aws --version
 #    Ensure it matches EKS cluster minor version (skew policy: ±1)
 echo "--- Installing kubectl ---"
 
-KUBECTL_VERSION=$(curl -fsSL "https://dl.k8s.io/release/stable.txt")
-curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+KUBECTL_VERSION=$$(curl -fsSL "https://dl.k8s.io/release/stable.txt")
+curl -fsSL "https://dl.k8s.io/release/$${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
 chmod +x /usr/local/bin/kubectl
 
 kubectl version --client
@@ -46,15 +46,15 @@ GITHUB_PAT="${github_pat}"
 OWNER="${owner}"
 REPO="${repo}"
 
-if [ -n "$GITHUB_PAT" ]; then
+if [ -n "$$GITHUB_PAT" ]; then
   # Fetch a short-lived registration token
   echo "Fetching GitHub Runner Registration Token..."
-  REG_TOKEN=$(curl -sX POST -H "Accept: application/vnd.github+json" \
-    -H "Authorization: Bearer $GITHUB_PAT" \
+  REG_TOKEN=$$(curl -sX POST -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer $$GITHUB_PAT" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
-    "https://api.github.com/repos/$OWNER/$REPO/actions/runners/registration-token" | jq -r .token)
+    "https://api.github.com/repos/$$OWNER/$$REPO/actions/runners/registration-token" | jq -r .token)
 
-  if [ "$REG_TOKEN" != "null" ] && [ -n "$REG_TOKEN" ]; then
+  if [ "$$REG_TOKEN" != "null" ] && [ -n "$$REG_TOKEN" ]; then
     echo "Successfully retrieved registration token."
     
     # Create a user for the runner (it shouldn't run as root)
@@ -70,7 +70,7 @@ if [ -n "$GITHUB_PAT" ]; then
       tar xzf ./actions-runner-linux-x64-2.322.0.tar.gz
       
       # Configure the runner with specific labels
-      ./config.sh --url https://github.com/$OWNER/$REPO --token $REG_TOKEN --name \"bastion-runner-$(hostname)\" --labels \"self-hosted,bastion,$(hostname)\" --unattended --replace
+      ./config.sh --url https://github.com/$$OWNER/$$REPO --token $$REG_TOKEN --name \"bastion-runner-$$(hostname)\" --labels \"self-hosted,bastion,$$(hostname)\" --unattended --replace
     "
 
     # Install and start the runner as a service (must be done as root)
@@ -85,4 +85,4 @@ else
   echo "No github_pat provided; skipping runner registration."
 fi
 
-echo "=== Bootstrap finished at $(date) ==="
+echo "=== Bootstrap finished at $$(date) ==="
