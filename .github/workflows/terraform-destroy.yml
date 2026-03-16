@@ -28,7 +28,7 @@ env:
 jobs:
   terraform-destroy:
     name: "Destroy Infrastructure — ${{ github.event.inputs.environment }} environment"
-    runs-on: [self-hosted, bastion]
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: environments/${{ github.event.inputs.environment }}
