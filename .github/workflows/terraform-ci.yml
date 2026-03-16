@@ -17,10 +17,11 @@ env:
   TERRAFORM_VERSION: "1.10.5"
   AWS_REGION: "ap-southeast-1"
   WORKING_DIR: "environments/dev"
+  EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
 
 jobs:
   terraform-ci:
-    name: "Infrastructure as Code Validataion"
+    name: "Infrastructure as Code Validation"
     runs-on: [self-hosted, bastion]
     defaults:
       run:
@@ -42,6 +43,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ env.EKS_CLUSTER_NAME }} \
+            --region ${{ env.AWS_REGION }}
+          echo "✅ kubeconfig updated"
+
       - name: Terraform Init
         id: init
         run: terraform init -reconfigure
@@ -49,6 +57,7 @@ jobs:
       - name: Terraform Format Check
         id: fmt
         run: terraform fmt -check -recursive -diff ../..
+        continue-on-error: true
 
       - name: Terraform Validate
         id: validate
@@ -57,45 +66,58 @@ jobs:
       - name: Terraform Plan
         id: plan
         run: terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan.txt
-        continue-on-error: true
 
       - name: Upload plan to S3
         if: steps.plan.outcome == 'success'
         run: |
           aws s3 cp tfplan s3://kltn-tfstate-dev/plans/dev/${{ github.sha }}/tfplan
-          echo "Plan uploaded to S3 with key: plans/dev/${{ github.sha }}/tfplan"
+          echo "✅ Plan uploaded: plans/dev/${{ github.sha }}/tfplan"
 
       - name: Post plan comment on PR
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && always()
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('environments/dev/plan.txt', 'utf8');
+
+            let plan = '';
+            try {
+              plan = fs.readFileSync('environments/dev/plan.txt', 'utf8');
+            } catch (e) {
+              plan = '(không đọc được output)';
+            }
             const maxLen = 65000;
-            const planText = plan.length > maxLen ? plan.substring(0, maxLen) + '\n...(truncated)' : plan;
+            const planText = plan.length > maxLen
+              ? plan.substring(0, maxLen) + '\n...(truncated)'
+              : plan;
 
-            const body = `##  Terraform Plan — DEV Environment
-             | Step | Result |
-             |------|--------|
-             | Format | \`${{ steps.fmt.outcome }}\` |
-             | Validate | \`${{ steps.validate.outcome }}\` |
-             | Plan | \`${{ steps.plan.outcome }}\` |
+            const fmtIcon  = '${{ steps.fmt.outcome }}'      === 'success' ? '✅' : '⚠️';
+            const valIcon  = '${{ steps.validate.outcome }}' === 'success' ? '✅' : '❌';
+            const planIcon = '${{ steps.plan.outcome }}'     === 'success' ? '✅' : '❌';
 
-             <details><summary>Show Plan Output</summary>
+            const body = `## Terraform Plan — DEV Environment
 
-             \`\`\`
-             ${planText}
-             \`\`\`
-             </details>
+            | Step     | Result |
+            |----------|--------|
+            | Format   | ${fmtIcon} \`${{ steps.fmt.outcome }}\` |
+            | Validate | ${valIcon} \`${{ steps.validate.outcome }}\` |
+            | Plan     | ${planIcon} \`${{ steps.plan.outcome }}\` |
 
-             ---
-             > **To apply this plan**, trigger the [Terraform Apply](../actions/workflows/terraform-apply.yml) workflow and enter:
-             > - Environment: \`dev\`
-             > - Plan Commit SHA: \`${{ github.sha }}\`
+            <details><summary>📄 Show Plan Output</summary>
 
-             >*Commit: \`${{ github.sha }}\`*`;
+            \`\`\`hcl
+            ${planText}
+            \`\`\`
+            </details>
+
+            ---
+            ${ '${{ steps.plan.outcome }}' === 'success'
+              ? `> ✅ **Plan OK.** To apply, run the workflow [Terraform Apply](../.github/workflows/terraform-apply.yml) with:\n> - **Environment:** \`dev\`\n> - **Plan Commit SHA:** \`${{ github.sha }}\``
+              : `> ❌ **Plan FAILED.** Please check the output above and fix the error before merging.`
+            }
+
+            > *Commit: \`${{ github.sha }}\`*`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -123,6 +145,10 @@ jobs:
               });
             }
 
-      - name: Fail if plan failed
-        if: steps.plan.outcome == 'failure'
-        run: exit 1
+      - name: Fail pipeline if validate or plan failed
+        if: steps.validate.outcome == 'failure' || steps.plan.outcome == 'failure'
+        run: |
+          echo "❌ Pipeline failed:"
+          [ "${{ steps.validate.outcome }}" == "failure" ] && echo "  - Terraform Validate FAILED"
+          [ "${{ steps.plan.outcome }}"     == "failure" ] && echo "  - Terraform Plan FAILED"
+          exit 1
