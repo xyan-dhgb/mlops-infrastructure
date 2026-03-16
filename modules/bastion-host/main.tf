@@ -49,6 +49,35 @@ resource "aws_security_group" "allow_ssh" {
   }
 }
 
+# IAM Role for Bastion Host — allows SSM Agent to receive commands
+# (used by helm-bootstrap.yml via `aws ssm send-command`)
+resource "aws_iam_role" "bastion_ssm" {
+  name = "${var.bastion_name}-ssm-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = {
+    Name = "${var.bastion_name}-ssm-role"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "bastion_ssm" {
+  role       = aws_iam_role.bastion_ssm.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "bastion_ssm" {
+  name = "${var.bastion_name}-ssm-profile"
+  role = aws_iam_role.bastion_ssm.name
+}
+
 # One bastion host per subnet for high availability
 resource "aws_instance" "bastion_host" {
   for_each = { for i, id in var.subnet_ids : tostring(i) => id }
