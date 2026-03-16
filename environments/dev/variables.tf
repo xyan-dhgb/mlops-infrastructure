@@ -85,6 +85,12 @@ variable "environment" {
   default     = "dev"
 }
 
+variable "github_pat" {
+  description = "GitHub Personal Access Token for registering self-hosted runners"
+  type        = string
+  sensitive   = true
+}
+
 variable "ingress_nginx_chart_version" {
   description = "Version of the ingress-nginx Helm chart to deploy"
   type        = string
