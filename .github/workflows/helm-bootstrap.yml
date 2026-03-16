@@ -61,23 +61,72 @@ jobs:
           echo "INSTANCE_ID=${{ github.event.inputs.bastion_instance_id }}" >> $GITHUB_ENV
           echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}"   >> $GITHUB_ENV
 
-      # ── Helper: chờ SSM command hoàn thành và in output ─────────────────────
-      # Được gọi nhiều lần bên dưới qua CMD_ID env var
-      - name: Verify SSM agent is online
+      # ── Phase 1: Dùng EC2 Instance Connect để cài SSM Agent (nhanh <30s) ─────
+      # Sau đó toàn bộ helm installs dùng SSM (không bị expire)
+      - name: Resolve Bastion AZ and Public IP
         run: |
-          STATUS=$(aws ssm describe-instance-information \
-            --filters "Key=InstanceIds,Values=${INSTANCE_ID}" \
-            --query "InstanceInformationList[0].PingStatus" \
+          AZ=$(aws ec2 describe-instances \
+            --instance-ids "${INSTANCE_ID}" \
+            --query "Reservations[0].Instances[0].Placement.AvailabilityZone" \
             --output text)
+          BASTION_IP=$(aws ec2 describe-instances \
+            --instance-ids "${INSTANCE_ID}" \
+            --query "Reservations[0].Instances[0].PublicIpAddress" \
+            --output text)
+          echo "AZ=${AZ}"                 >> $GITHUB_ENV
+          echo "BASTION_IP=${BASTION_IP}" >> $GITHUB_ENV
+          echo "Bastion: ${BASTION_IP} (${AZ})"
 
+      - name: Install SSM Agent via EC2 Instance Connect
+        run: |
+          # Generate ephemeral key và push ngay — sau đó SSH 1 lần duy nhất để cài SSM
+          ssh-keygen -t ed25519 -f /tmp/bastion_key -N ""
+          aws ec2-instance-connect send-ssh-public-key \
+            --instance-id "${INSTANCE_ID}" \
+            --availability-zone "${AZ}" \
+            --instance-os-user ubuntu \
+            --ssh-public-key file:///tmp/bastion_key.pub
+          chmod 600 /tmp/bastion_key
+
+          # SSH ngay lập tức — toàn bộ cài đặt phải xong trong 60s
+          ssh -i /tmp/bastion_key \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 \
+              ubuntu@${BASTION_IP} "
+            # Cài SSM Agent nếu chưa có
+            if ! systemctl is-active --quiet amazon-ssm-agent 2>/dev/null; then
+              echo 'Installing SSM Agent...'
+              sudo snap install amazon-ssm-agent --classic
+              sudo systemctl enable amazon-ssm-agent
+              sudo systemctl start amazon-ssm-agent
+            else
+              echo 'SSM Agent already running'
+            fi
+            sudo systemctl status amazon-ssm-agent --no-pager
+          "
+          echo "SSM Agent installed — ephemeral key can now expire safely"
+
+      - name: Wait for SSM Agent to come Online
+        run: |
+          echo "Waiting for SSM Agent to register (up to 3 min)..."
+          for i in $(seq 1 18); do
+            STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=${INSTANCE_ID}" \
+              --query "InstanceInformationList[0].PingStatus" \
+              --output text 2>/dev/null || echo "None")
+            if [ "${STATUS}" = "Online" ]; then
+              echo "SSM Agent is Online ✅ (attempt ${i})"
+              break
+            fi
+            echo "Attempt ${i}/18: SSM status=${STATUS}, waiting 10s..."
+            sleep 10
+          done
           if [ "${STATUS}" != "Online" ]; then
-            echo "ERROR: SSM Agent trên ${INSTANCE_ID} không Online (status: ${STATUS})"
-            echo "Chạy 'terraform apply' để attach IAM instance profile mới cho bastion."
+            echo "ERROR: SSM Agent did not come Online after 3 minutes"
             exit 1
           fi
-          echo "SSM Agent is Online ✅"
 
-      # ── Install tools ────────────────────────────────────────────────────────
+      # ── Phase 2: Tất cả tasks còn lại qua SSM (không bị expire) ─────────────
       - name: "Install kubectl + helm on Bastion"
         run: |
           CMD_ID=$(aws ssm send-command \
