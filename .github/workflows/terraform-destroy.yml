@@ -75,11 +75,17 @@ jobs:
 
       - name: Terraform Plan Destroy
         id: plan
+        env:
+          TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
         run: terraform plan -destroy -no-color -input=false 2>&1 | tee destroy-plan.txt
 
       - name: Terraform Destroy
         id: destroy
-        run: terraform destroy -auto-approve -no-color -input=false 2>&1 | tee destroy.txt
+        env:
+          TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
+        run: |
+          set -o pipefail
+          terraform destroy -auto-approve -no-color -input=false 2>&1 | tee destroy.txt
 
       - name: Post destroy summary to GitHub Step Summary
         if: always()
