@@ -1,0 +1,152 @@
+name: "Terraform Apply - Deploy to DEV"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+      plan_commit_sha:
+        description: "Commit SHA from the CI plan run (find in PR comment)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write # For AWS authentication
+  contents: read # Checkout code
+  pull-requests: write # For creating issues
+  issues: write # For creating issues
+
+env:
+  TERRAFORM_VERSION: "1.10.5"
+  AWS_REGION: "ap-southeast-1"
+  EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+
+jobs:
+  terraform-apply:
+    name: "Deploy Infrastructure to ${{ github.event.inputs.environment }} environment"
+    runs-on: [self-hosted, bastion]
+    defaults:
+      run:
+        working-directory: environments/${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Verify running from dev branch
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ "${{ github.ref_name }}" != "dev" ]; then
+            echo "❌ERROR: This workflow must be run from the 'dev' branch."
+            echo "Current branch: ${{ github.ref_name }}"
+            exit 1
+          fi
+          echo "✅ Branch check passed: running on 'dev'"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update config for EKS
+        id: kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+          echo "✅ Kubeconfig updated successfully, Helm provider can reach EKS"
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -reconfigure
+
+      - name: Download plan from S3
+        id: plan
+        run: |
+          echo "Downloading plan for commit: ${{ github.event.inputs.plan_commit_sha }}"
+          aws s3 cp s3://kltn-tfstate-dev/plans/${{ github.event.inputs.environment }}/${{ github.event.inputs.plan_commit_sha }}/tfplan tfplan
+          echo "✅ Plan downloaded successfully"
+
+      - name: Terraform Apply
+        id: apply
+        env:
+          TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
+        run: |
+          set -o pipefail
+          terraform apply -auto-approve -no-color -input=false tfplan 2>&1 | tee apply.txt
+
+      - name: Verify ingress-nginx deployment
+        id: verify
+        run: |
+          echo "=== Checking ingress-nginx pods ==="
+          kubectl get pods -n ingress-nginx
+
+          echo "=== Checking ingress-nginx controller rollout ==="
+          kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=300s
+
+          echo "=== Checking ingress-nginx controller service ==="
+          kubectl get svc ingress-nginx-controller -n ingress-nginx
+
+          echo "✅ ingress-nginx controller healthy"
+
+      - name: Post apply summary to GitHub Step Summary
+        if: always()
+        run: |
+          echo "## Terraform Apply — ${{ github.event.inputs.environment }} Environment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step              | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Init              | \`${{ steps.init.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Download Plan     | \`${{ steps.plan.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Apply             | \`${{ steps.apply.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Verify Ingress    | \`${{ steps.verify.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Plan Commit SHA:** \`${{ github.event.inputs.plan_commit_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Apply Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** \`${{ github.actor }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Apply Output</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat apply.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.sha.substring(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            // Determine which step failed to provide a more specific reason
+            const applyOutcome  = '${{ steps.apply.outcome }}';
+            const verifyOutcome = '${{ steps.verify.outcome }}';
+            let failReason = '';
+            if (applyOutcome === 'failure') {
+              failReason = '`terraform apply` failed. Check output in run log.';
+            } else if (verifyOutcome === 'failure') {
+              failReason = '`terraform apply` success but **ingress-nginx is not healthy**. '
+                + 'Helm release may be in failed state. Run `helm status ingress-nginx -n ingress-nginx` to check.';
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `❌ Terraform Apply FAILED on ${{ github.event.inputs.environment }} — ${sha}`,
+              body: `## Terraform Apply Failed\n\n**Environment:** \`${{ github.event.inputs.environment }}\`\n**Branch:** \`dev\`\n**Commit:** \`${context.sha}\`\n**Triggered by:** \`${context.actor}\`\n\n**Nguyên nhân:** ${failReason}\n\n[🔗 View failed run](${runUrl})\n\n> Kiểm tra và fix trước khi deploy lại.`,
+              labels: ['terraform', 'infrastructure', 'bug'],
+            });
