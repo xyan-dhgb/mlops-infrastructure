@@ -26,7 +26,7 @@ rm -rf /tmp/awscliv2.zip /tmp/aws   # Clean up installation files
 aws --version
 
 # 4. Install kubectl
-#    Ensure it matches EKS cluster minor version (skew policy: ±1)
+# Ensure it matches EKS cluster minor version (skew policy: ±1)
 echo "--- Installing kubectl ---"
 
 KUBECTL_VERSION=$$(curl -fsSL "https://dl.k8s.io/release/stable.txt")
@@ -44,5 +44,4 @@ curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 |
 helm version
 
 echo "=== Bootstrap finished at $(date) ==="
-echo "NOTE: To configure kubectl after SSH-ing in:"
-echo "  aws eks update-kubeconfig --region <region> --name <cluster-name>"
+echo "NOTE: Tools installed: aws-cli, kubectl, helm"
