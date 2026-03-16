@@ -88,6 +88,8 @@ resource "aws_instance" "bastion_host" {
   subnet_id                   = each.value
   associate_public_ip_address = true
 
+  iam_instance_profile = aws_iam_instance_profile.bastion_ssm.name
+
   vpc_security_group_ids = [aws_security_group.allow_ssh.id]
 
   user_data = base64encode(file("${path.module}/user_data.sh"))
