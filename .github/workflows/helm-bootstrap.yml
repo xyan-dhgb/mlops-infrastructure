@@ -4,9 +4,13 @@ name: "Helm Bootstrap - K8s Add-ons via Bastion SSH"
 # 2. ingress-nginx (uses NLB via annotation)
 # 3. ArgoCD (then take over GitOps)
 #
-# NOTE: All steps are in a SINGLE JOB because EC2 Instance Connect keys are
-# only valid for 60 seconds. Splitting into multiple jobs would cause the key
-# to expire before the SSH commands run in the next job.
+# SSH Auth: Uses permanent bastion SSH key stored in GitHub Secret BASTION_SSH_KEY.
+# EC2 Instance Connect is NOT used — its 60s key expiry is incompatible with
+# long-running helm installs (LBC --timeout 5m, ingress-nginx --timeout 10m).
+#
+# Setup required (one-time):
+#   1. Get the private key: cat modules/bastion-host/bastion-host.pem
+#   2. Add to GitHub Secrets as: BASTION_SSH_KEY
 
 on:
   workflow_dispatch:
@@ -52,48 +56,32 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Generate ephemeral SSH key pair
-        run: ssh-keygen -t ed25519 -f /tmp/bastion_key -N ""
-
-      - name: Resolve Bastion AZ and Public IP
-        id: resolve
+      # Dùng permanent SSH key lưu trong GitHub Secrets (tên: BASTION_SSH_KEY)
+      # Lấy nội dung key: cat modules/bastion-host/bastion-host.pem
+      - name: Write SSH private key from secret
         run: |
-          INSTANCE_ID="${{ github.event.inputs.bastion_instance_id }}"
+          echo "${{ secrets.BASTION_SSH_KEY }}" > /tmp/bastion_key
+          chmod 600 /tmp/bastion_key
 
-          AZ=$(aws ec2 describe-instances \
-            --instance-ids "${INSTANCE_ID}" \
-            --query "Reservations[0].Instances[0].Placement.AvailabilityZone" \
-            --output text)
-
+      - name: Resolve Bastion Public IP
+        run: |
           BASTION_IP=$(aws ec2 describe-instances \
-            --instance-ids "${INSTANCE_ID}" \
+            --instance-ids "${{ github.event.inputs.bastion_instance_id }}" \
             --query "Reservations[0].Instances[0].PublicIpAddress" \
             --output text)
 
           if [ -z "${BASTION_IP}" ] || [ "${BASTION_IP}" = "None" ]; then
-            echo "ERROR: No public IP found for instance ${INSTANCE_ID}."
+            echo "ERROR: No public IP for instance ${{ github.event.inputs.bastion_instance_id }}"
             exit 1
           fi
 
-          echo "AZ=${AZ}"                 >> $GITHUB_ENV
           echo "BASTION_IP=${BASTION_IP}" >> $GITHUB_ENV
           echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> $GITHUB_ENV
-          echo "Bastion: ${BASTION_IP} (${AZ})"
-
-      # Push key và SSH ngay lập tức trong cùng 1 job
-      # để tránh EC2 Instance Connect key hết hạn (valid 60s)
-      - name: Push ephemeral SSH key via EC2 Instance Connect
-        run: |
-          aws ec2-instance-connect send-ssh-public-key \
-            --instance-id "${{ github.event.inputs.bastion_instance_id }}" \
-            --availability-zone "${AZ}" \
-            --instance-os-user ubuntu \
-            --ssh-public-key file:///tmp/bastion_key.pub
-          chmod 600 /tmp/bastion_key
-          echo "Key pushed — connecting immediately before 60s expiry..."
+          echo "Bastion IP: ${BASTION_IP}"
 
       - name: Wait for SSH to be ready
         run: |
+          echo "Waiting for SSH on ${BASTION_IP}..."
           for i in $(seq 1 12); do
             if ssh -i /tmp/bastion_key \
                    -o StrictHostKeyChecking=no \
@@ -102,12 +90,6 @@ jobs:
               echo "SSH ready"
               break
             fi
-            # Nếu SSH chưa sẵn sàng thì re-push key (mỗi lần chờ làm key hết hạn)
-            aws ec2-instance-connect send-ssh-public-key \
-              --instance-id "${{ github.event.inputs.bastion_instance_id }}" \
-              --availability-zone "${AZ}" \
-              --instance-os-user ubuntu \
-              --ssh-public-key file:///tmp/bastion_key.pub 2>/dev/null || true
             echo "Attempt ${i}/12: retrying in 10s..."
             sleep 10
           done
@@ -125,17 +107,17 @@ jobs:
                 -o /tmp/kubectl
               sudo mv /tmp/kubectl /usr/local/bin/kubectl
               sudo chmod +x /usr/local/bin/kubectl
-              echo \"kubectl installed\"
+              echo 'kubectl installed'
             else
-              echo \"kubectl already installed\"
+              echo 'kubectl already installed'
             fi
 
             if ! command -v helm &>/dev/null; then
               echo 'Installing helm...'
               curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash
-              echo \"helm installed\"
+              echo 'helm installed'
             else
-              echo \"helm already installed\"
+              echo 'helm already installed'
             fi
             "
 
@@ -201,7 +183,7 @@ jobs:
             echo 'LBC installed OK'
             "
 
-      # ── 2. ingress-nginx ──────────────────────────────────────────────────────
+      # Chờ webhook TLS cert của LBC propagate trước khi cài ingress-nginx
       - name: "Wait for LBC webhook to be ready"
         run: |
           ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
@@ -210,16 +192,16 @@ jobs:
             export AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}'
             export AWS_DEFAULT_REGION='${AWS_REGION}'
 
-            echo 'Waiting 30s for LBC webhook TLS certificate to propagate...'
+            echo 'Sleeping 30s for LBC webhook TLS certificate to propagate...'
             sleep 30
 
-            echo 'Verifying LBC webhook endpoint is reachable...'
             kubectl wait --for=condition=ready pod \
               -l app.kubernetes.io/name=aws-load-balancer-controller \
               -n kube-system --timeout=60s
             echo 'LBC webhook ready'
             "
 
+      # ── 2. ingress-nginx ──────────────────────────────────────────────────────
       - name: "2/3 Install ingress-nginx"
         id: install_nginx
         run: |
@@ -282,6 +264,10 @@ jobs:
         run: |
           ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
             ubuntu@${BASTION_IP} "
+            export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}'
+            export AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+            export AWS_DEFAULT_REGION='${AWS_REGION}'
+
             echo '==> AWS Load Balancer Controller'
             kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
 
