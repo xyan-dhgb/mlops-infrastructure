@@ -3,6 +3,10 @@ name: "Helm Bootstrap - K8s Add-ons via Bastion SSH"
 # 1. AWS Load Balancer Controller (needs to run first for NLB to be generated)
 # 2. ingress-nginx (uses NLB via annotation)
 # 3. ArgoCD (then take over GitOps)
+#
+# NOTE: All steps are in a SINGLE JOB because EC2 Instance Connect keys are
+# only valid for 60 seconds. Splitting into multiple jobs would cause the key
+# to expire before the SSH commands run in the next job.
 
 on:
   workflow_dispatch:
@@ -33,14 +37,14 @@ env:
   AWS_REGION: "ap-southeast-1"
 
 jobs:
-  # Job 1: Push ephemeral SSH key to Bastion via EC2 Instance Connect
-  push-ssh-key:
-    name: "Push ephemeral SSH Key to Bastion"
+  bootstrap:
+    name: "Bootstrap K8s Add-ons via Bastion SSH"
     runs-on: ubuntu-latest
-    outputs:
-      bastion_ip: ${{ steps.resolve.outputs.bastion_ip }}
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -68,86 +72,79 @@ jobs:
 
           if [ -z "${BASTION_IP}" ] || [ "${BASTION_IP}" = "None" ]; then
             echo "ERROR: No public IP found for instance ${INSTANCE_ID}."
-            echo "Check if Bastion Host is running and has a public IP."
             exit 1
           fi
 
-          echo "Availability Zone : ${AZ}"
-          echo "Bastion Public IP  : ${BASTION_IP}"
-
           echo "AZ=${AZ}"                 >> $GITHUB_ENV
           echo "BASTION_IP=${BASTION_IP}" >> $GITHUB_ENV
-          echo "bastion_ip=${BASTION_IP}" >> $GITHUB_OUTPUT
+          echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> $GITHUB_ENV
+          echo "Bastion: ${BASTION_IP} (${AZ})"
 
-      - name: Push ephemeral public key via EC2 Instance Connect
+      # Push key và SSH ngay lập tức trong cùng 1 job
+      # để tránh EC2 Instance Connect key hết hạn (valid 60s)
+      - name: Push ephemeral SSH key via EC2 Instance Connect
         run: |
           aws ec2-instance-connect send-ssh-public-key \
             --instance-id "${{ github.event.inputs.bastion_instance_id }}" \
             --availability-zone "${AZ}" \
             --instance-os-user ubuntu \
             --ssh-public-key file:///tmp/bastion_key.pub
-          echo "Key pushed to bastion (${BASTION_IP})"
+          chmod 600 /tmp/bastion_key
+          echo "Key pushed — connecting immediately before 60s expiry..."
 
-      - name: Upload SSH private key as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bastion-ssh-key
-          path: /tmp/bastion_key
-          retention-days: 1
-
-  # Job 2: SCP values.yaml lên Bastion → Run helm install for each add-on
-  bootstrap-addons:
-    name: "Bootstrap K8s Add-ons via Helm"
-    runs-on: ubuntu-latest
-    needs: push-ssh-key
-
-    env:
-      BASTION_IP: ${{ needs.push-ssh-key.outputs.bastion_ip }}
-      CLUSTER_NAME: ${{ github.event.inputs.eks_cluster_name }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Download SSH private key
-        uses: actions/download-artifact@v4
-        with:
-          name: bastion-ssh-key
-          path: /tmp/
-
-      - name: Fix SSH key permissions
-        run: chmod 600 /tmp/bastion_key
-
-      - name: Wait for SSH to be available on Bastion
+      - name: Wait for SSH to be ready
         run: |
-          echo "Waiting for SSH on ${BASTION_IP}..."
           for i in $(seq 1 12); do
             if ssh -i /tmp/bastion_key \
                    -o StrictHostKeyChecking=no \
                    -o ConnectTimeout=5 \
                    ubuntu@${BASTION_IP} "echo ready" 2>/dev/null; then
-              echo "SSH ready after attempt ${i}"
+              echo "SSH ready"
               break
             fi
-            echo "Attempt ${i}/12: not ready, retrying in 10s..."
+            # Nếu SSH chưa sẵn sàng thì re-push key (mỗi lần chờ làm key hết hạn)
+            aws ec2-instance-connect send-ssh-public-key \
+              --instance-id "${{ github.event.inputs.bastion_instance_id }}" \
+              --availability-zone "${AZ}" \
+              --instance-os-user ubuntu \
+              --ssh-public-key file:///tmp/bastion_key.pub 2>/dev/null || true
+            echo "Attempt ${i}/12: retrying in 10s..."
             sleep 10
           done
 
+      - name: Install tools on Bastion (kubectl + helm)
+        run: |
+          ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
+            ubuntu@${BASTION_IP} "
+            set -euo pipefail
+
+            if ! command -v kubectl &>/dev/null; then
+              echo 'Installing kubectl...'
+              KUBECTL_VERSION=\$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+              curl -fsSL \"https://dl.k8s.io/release/\${KUBECTL_VERSION}/bin/linux/amd64/kubectl\" \
+                -o /tmp/kubectl
+              sudo mv /tmp/kubectl /usr/local/bin/kubectl
+              sudo chmod +x /usr/local/bin/kubectl
+              echo \"kubectl installed\"
+            else
+              echo \"kubectl already installed\"
+            fi
+
+            if ! command -v helm &>/dev/null; then
+              echo 'Installing helm...'
+              curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash
+              echo \"helm installed\"
+            else
+              echo \"helm already installed\"
+            fi
+            "
+
       - name: SCP Helm values files to Bastion
         run: |
-          # Create directory to receive files on bastion
           ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
             ubuntu@${BASTION_IP} \
             "mkdir -p ~/helm-values/ingress-nginx ~/helm-values/argocd"
 
-          # Copy values.yaml from modules/ (no need to copy terraform code)
           scp -i /tmp/bastion_key -o StrictHostKeyChecking=no \
             modules/ingress-nginx/values.yaml \
             ubuntu@${BASTION_IP}:~/helm-values/ingress-nginx/values.yaml
@@ -156,36 +153,7 @@ jobs:
             modules/argocd/values.yaml \
             ubuntu@${BASTION_IP}:~/helm-values/argocd/values.yaml
 
-          echo "Helm values files synced to bastion"
-
-      - name: Install tools on Bastion (kubectl + helm)
-        run: |
-          ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
-            ubuntu@${BASTION_IP} "
-            set -euo pipefail
-
-            # Install kubectl if not present
-            if ! command -v kubectl &>/dev/null; then
-              echo 'Installing kubectl...'
-              KUBECTL_VERSION=\$(curl -fsSL https://dl.k8s.io/release/stable.txt)
-              curl -fsSL \"https://dl.k8s.io/release/\${KUBECTL_VERSION}/bin/linux/amd64/kubectl\" \
-                -o /tmp/kubectl
-              sudo mv /tmp/kubectl /usr/local/bin/kubectl
-              sudo chmod +x /usr/local/bin/kubectl
-              echo \"kubectl installed: \$(kubectl version --client 2>&1 | head -1)\"
-            else
-              echo \"kubectl already installed\"
-            fi
-
-            # Install helm if not present
-            if ! command -v helm &>/dev/null; then
-              echo 'Installing helm...'
-              curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash
-              echo \"helm installed: \$(helm version --short)\"
-            else
-              echo \"helm already installed: \$(helm version --short)\"
-            fi
-            "
+          echo "Helm values synced to bastion"
 
       - name: Configure kubectl on Bastion
         run: |
@@ -196,8 +164,8 @@ jobs:
              AWS_DEFAULT_REGION=${AWS_REGION} \
              aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
 
-      # 1. AWS Load Balancer Controller
-      - name: "Install AWS Load Balancer Controller"
+      # ── 1. AWS Load Balancer Controller ──────────────────────────────────────
+      - name: "1/3 Install AWS Load Balancer Controller"
         id: install_lbc
         run: |
           ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
@@ -233,15 +201,16 @@ jobs:
             echo 'LBC installed OK'
             "
 
-      # 2. ingress-nginx
-      - name: "Install ingress-nginx"
+      # ── 2. ingress-nginx ──────────────────────────────────────────────────────
+      - name: "2/3 Install ingress-nginx"
         id: install_nginx
         run: |
           ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
             ubuntu@${BASTION_IP} "
             set -euo pipefail
 
-            # Replace template variable replica_count before passing to helm
+            # values.yaml dùng \${replica_count} (Terraform template syntax)
+            # Thay bằng số thực trước khi truyền vào helm
             sed 's/\${replica_count}/2/g' ~/helm-values/ingress-nginx/values.yaml \
               > /tmp/ingress-nginx-values.yaml
 
@@ -260,8 +229,8 @@ jobs:
             echo 'ingress-nginx installed OK'
             "
 
-      # 3. ArgoCD
-      - name: "Install ArgoCD"
+      # ── 3. ArgoCD ─────────────────────────────────────────────────────────────
+      - name: "3/3 Install ArgoCD"
         id: install_argocd
         run: |
           ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
@@ -283,7 +252,7 @@ jobs:
             echo 'ArgoCD installed OK'
             "
 
-      # Verify the installation result
+      # ── Verify ────────────────────────────────────────────────────────────────
       - name: Verify all add-ons are healthy
         id: verify
         run: |
@@ -292,7 +261,7 @@ jobs:
             echo '==> AWS Load Balancer Controller'
             kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
 
-            echo '==> ingress-nginx (check EXTERNAL-IP = NLB DNS)'
+            echo '==> ingress-nginx (EXTERNAL-IP = NLB DNS)'
             kubectl get pods -n ingress-nginx
             kubectl get svc ingress-nginx-controller -n ingress-nginx
 
@@ -311,9 +280,9 @@ jobs:
           echo "| ingress-nginx                | \`${{ steps.install_nginx.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| ArgoCD                       | \`${{ steps.install_argocd.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Bastion Instance:** \`${{ github.event.inputs.bastion_instance_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Bastion:** \`${{ github.event.inputs.bastion_instance_id }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**EKS Cluster:** \`${{ github.event.inputs.eks_cluster_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** \`${{ github.actor }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **Next:** ArgoCD tiếp quản GitOps. Initial admin password:" >> $GITHUB_STEP_SUMMARY
+          echo "> ArgoCD initial admin password:" >> $GITHUB_STEP_SUMMARY
           echo "> \`kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d\`" >> $GITHUB_STEP_SUMMARY
