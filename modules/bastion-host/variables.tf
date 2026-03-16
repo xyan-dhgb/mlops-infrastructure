@@ -31,9 +31,3 @@ variable "vpc_id" {
   type        = string
   description = "The ID of the VPC"
 }
-
-variable "github_pat" {
-  description = "GitHub Personal Access Token for registering self-hosted runners"
-  type        = string
-  sensitive   = true
-}
