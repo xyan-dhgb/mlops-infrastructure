@@ -42,38 +42,6 @@ module "bastion" {
   github_pat       = var.github_pat
 }
 
-module "argocd" {
-  source = "../../modules/argocd"
-
-  cluster_name         = module.eks.cluster_name
-  argocd_chart_version = "7.5.2"
-
-  depends_on = [module.eks]
-}
-
-module "load_balancer_controller" {
-  source = "../../modules/load-balancer-controller"
-
-  cluster_name      = module.eks.cluster_name
-  oidc_provider_arn = module.eks.cluster_oidc_provider_arn
-  oidc_issuer_url   = module.eks.cluster_oidc_issuer_url
-
-  depends_on = [module.eks]
-}
-
-module "ingress_nginx" {
-  source = "../../modules/ingress-nginx"
-
-  cluster_name  = module.eks.cluster_name
-  chart_version = var.ingress_nginx_chart_version
-
-  # The AWS Load Balancer Controller must be running before Nginx is deployed,
-  # otherwise the NLB Service annotation will not be reconciled and the
-  # controller pod will remain in a pending state waiting for an external IP.
-  depends_on = [module.load_balancer_controller]
-
-}
-
 module "ecr" {
   source = "../../modules/ecr"
 
@@ -88,9 +56,4 @@ module "ecr" {
     Team       = "mlops"
     CostCenter = "ml-infra"
   }
-}
-
-output "ecr_registry_id" {
-  description = "ECR registry ID (= AWS account ID)"
-  value       = module.ecr.registry_id
 }
