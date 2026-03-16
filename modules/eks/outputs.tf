@@ -41,7 +41,10 @@ output "cluster_oidc_issuer_url" {
   value       = aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
 
-# Note: OIDC provider ARN output removed - manage OIDC provider separately if needed
+output "cluster_oidc_provider_arn" {
+  description = "OIDC provider ARN for IRSA"
+  value       = aws_iam_openid_connect_provider.eks.arn
+}
 
 # Node Group Information
 output "node_group_id" {

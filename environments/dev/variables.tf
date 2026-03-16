@@ -78,3 +78,20 @@ variable "bastion_allowed_ssh_cidr" {
   description = "Your public IP in CIDR notation to allow SSH (e.g. 203.0.113.50/32)"
   type        = string
 }
+
+variable "environment" {
+  description = "Deployment environment (dev | prod)"
+  type        = string
+  default     = "dev"
+}
+
+variable "github_pat" {
+  description = "GitHub Personal Access Token for registering self-hosted runners"
+  type        = string
+  sensitive   = true
+}
+
+variable "ingress_nginx_chart_version" {
+  description = "Version of the ingress-nginx Helm chart to deploy"
+  type        = string
+}

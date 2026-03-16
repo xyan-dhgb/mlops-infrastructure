@@ -1,0 +1,73 @@
+# Ingress Nginx Helm values
+# Routing flow: Dev → NLB (Layer 4) → Ingress Nginx (Layer 7) → Service → Pod
+
+controller:
+  # Number of replicas is injected from Terraform variables
+  replicaCount: ${replica_count}
+
+  # Use DaemonSet style pod anti-affinity for better distribution across nodes
+  affinity:
+    podAntiAffinity:
+    # Soft rule, spread across nodes
+    # K8s will try its best to schedule Pods onto different Nodes. But if the Cluster runs out of available Nodes, it will still allow two Pods to share a Node rather than leaving the Pod in a Pending state.
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - ingress-nginx
+            # This is the area to "avoid. 
+            # If Node X already has a Pod labeled ingress-nginx, then prioritize finding a Node with a different hostname to place this new Pod on."
+            topologyKey: kubernetes.io/hostname
+
+  service:
+    # type: LoadBalancer causes the AWS LB Controller to provision an NLB
+    type: LoadBalancer
+    annotations:
+      # Use the newer "external" NLB type (not the legacy CLB)
+      service.beta.kubernetes.io/aws-load-balancer-type: "external"
+
+      # IP target mode: NLB sends traffic directly to Pod IPs, bypassing NodePort.
+      # This avoids double NAT, reduces latency, and is the recommended mode for EKS.
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+
+      # internet-facing: NLB is provisioned in public subnets and gets a public DNS name.
+      # Change to "internal" if only internal VPC access is needed.
+      service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+      # Cross-zone load balancing, ensures even distribution across AZs
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+
+  # Expose a /healthz endpoint for the NLB health check
+  healthCheckPath: /healthz
+
+  # Resource limits, tuned for t3.medium worker nodes
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Required for proper X-Forwarded-For header handling behind NLB
+  config:
+    #This determines whether Nginx will decode the PROXY protocol header (usually at Layer 4 - TCP).
+    use-proxy-protocol: "false"
+
+    #Allow Nginx to trust and use HTTP headers.
+    #When an HTTP packet passes through the Load Balancer, the client's original IP address is written to the X-Forwarded-For header.
+    use-forwarded-headers: "true" 
+
+    #Enable processing of the entire IP address string in the X-Forwarded-For list.
+    compute-full-forwarded-for: "true"
+
+    #The network address range (CIDR) is considered a Trusted Proxy.
+    proxy-real-ip-cidr: "0.0.0.0/0"
+
+#In Kubernetes Ingress, defaultBackend is a fallback service. If a client accesses a URL that haven't configured in Ingress, Nginx will redirect the client to this defaultBackend (usually displaying a simple 404 page).
+defaultBackend:
+  enabled: false

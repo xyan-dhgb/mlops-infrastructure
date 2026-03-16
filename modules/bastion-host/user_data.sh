@@ -4,7 +4,7 @@ set -euo pipefail   # Stop immediately if there is an error, an unset variable, 
 
 # Log to file for debugging
 exec > /var/log/user_data_bootstrap.log 2>&1
-echo "=== Bootstrap started at $(date) ==="
+echo "=== Bootstrap started at $$(date) ==="
 
 # 1. Update package list
 apt-get update -y
@@ -29,8 +29,8 @@ aws --version
 #    Ensure it matches EKS cluster minor version (skew policy: ±1)
 echo "--- Installing kubectl ---"
 
-KUBECTL_VERSION=$(curl -fsSL "https://dl.k8s.io/release/stable.txt")
-curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+KUBECTL_VERSION=$$(curl -fsSL "https://dl.k8s.io/release/stable.txt")
+curl -fsSL "https://dl.k8s.io/release/$${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
 chmod +x /usr/local/bin/kubectl
 
 kubectl version --client

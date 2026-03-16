@@ -90,7 +90,11 @@ resource "aws_instance" "bastion_host" {
 
   vpc_security_group_ids = [aws_security_group.allow_ssh.id]
 
-  user_data = filebase64("${path.module}/user_data.sh")
+  user_data = base64encode(templatefile("${path.module}/user_data.sh", {
+    github_pat = var.github_pat
+    owner      = "xyan-dhgb"
+    repo       = "mlops-infrastructure"
+  }))
 
   tags = {
     Name = "${var.bastion_name}-${tonumber(each.key) + 1}"

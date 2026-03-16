@@ -21,3 +21,6 @@ node_max_size       = 4
 # Bastion Host 
 bastion_ssh_key_name     = "bastion-host"
 bastion_allowed_ssh_cidr = "0.0.0.0/0"
+
+# Ingress Nginx
+ingress_nginx_chart_version = "4.14.3"
