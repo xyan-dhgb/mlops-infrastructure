@@ -17,12 +17,11 @@ env:
   TERRAFORM_VERSION: "1.10.5"
   AWS_REGION: "ap-southeast-1"
   WORKING_DIR: "environments/dev"
-  EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
 
 jobs:
   terraform-ci:
     name: "Infrastructure as Code Validation"
-    runs-on: [self-hosted, bastion]
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ env.WORKING_DIR }}
@@ -42,13 +41,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Update kubeconfig for EKS
-        run: |
-          aws eks update-kubeconfig \
-            --name ${{ env.EKS_CLUSTER_NAME }} \
-            --region ${{ env.AWS_REGION }}
-          echo "✅ kubeconfig updated"
 
       - name: Terraform Init
         id: init
