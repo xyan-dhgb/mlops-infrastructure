@@ -39,7 +39,16 @@ module "bastion" {
   subnet_ids       = module.vpc.public_subnet_ids
   ssh_key_name     = var.bastion_ssh_key_name
   allowed_ssh_cidr = var.bastion_allowed_ssh_cidr
-  github_pat       = var.github_pat
+}
+
+module "load_balancer_controller" {
+  source = "../../modules/load-balancer-controller"
+
+  cluster_name      = module.eks.cluster_name
+  oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  oidc_issuer_url   = module.eks.cluster_oidc_issuer_url
+
+  depends_on = [module.eks]
 }
 
 module "ecr" {
