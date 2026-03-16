@@ -169,7 +169,8 @@ jobs:
               echo 'Installing kubectl...'
               KUBECTL_VERSION=\$(curl -fsSL https://dl.k8s.io/release/stable.txt)
               curl -fsSL \"https://dl.k8s.io/release/\${KUBECTL_VERSION}/bin/linux/amd64/kubectl\" \
-                | sudo tee /usr/local/bin/kubectl > /dev/null
+                -o /tmp/kubectl
+              sudo mv /tmp/kubectl /usr/local/bin/kubectl
               sudo chmod +x /usr/local/bin/kubectl
               echo \"kubectl installed: \$(kubectl version --client 2>&1 | head -1)\"
             else
