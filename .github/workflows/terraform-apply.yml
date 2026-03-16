@@ -80,7 +80,11 @@ jobs:
 
       - name: Terraform Apply
         id: apply
-        run: terraform apply -auto-approve -no-color -input=false tfplan 2>&1 | tee apply.txt
+        env:
+          TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
+        run: |
+          set -o pipefail
+          terraform apply -auto-approve -no-color -input=false tfplan 2>&1 | tee apply.txt
 
       - name: Verify ingress-nginx deployment
         id: verify
