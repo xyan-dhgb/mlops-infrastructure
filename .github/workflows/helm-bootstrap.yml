@@ -1,11 +1,7 @@
 name: "Helm Bootstrap - K8s Add-ons via SSM"
-# Dùng AWS SSM Run Command thay vì SSH.
-# Không cần SSH key, không cần port 22, không bị expire.
-#
-# Yêu cầu (one-time setup):
-#   - Bastion phải có IAM instance profile với AmazonSSMManagedInstanceCore
-#     (đã được thêm vào modules/bastion-host/main.tf)
-#   - Chạy `terraform apply` để apply IAM role mới cho bastion
+# Flow:
+#   Phase 1 — EC2 Instance Connect (1 lần, <30s): cài và start SSM Agent
+#   Phase 2 — AWS SSM (không expire): helm install LBC, ingress-nginx, ArgoCD
 #
 # Installation Order:
 #   1. AWS Load Balancer Controller
@@ -61,8 +57,7 @@ jobs:
           echo "INSTANCE_ID=${{ github.event.inputs.bastion_instance_id }}" >> $GITHUB_ENV
           echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}"   >> $GITHUB_ENV
 
-      # ── Phase 1: Dùng EC2 Instance Connect để cài SSM Agent (nhanh <30s) ─────
-      # Sau đó toàn bộ helm installs dùng SSM (không bị expire)
+      # ── Phase 1: EC2 Instance Connect → Start SSM Agent (<30s) ──────────────
       - name: Resolve Bastion AZ and Public IP
         run: |
           AZ=$(aws ec2 describe-instances \
@@ -77,9 +72,8 @@ jobs:
           echo "BASTION_IP=${BASTION_IP}" >> $GITHUB_ENV
           echo "Bastion: ${BASTION_IP} (${AZ})"
 
-      - name: Install SSM Agent via EC2 Instance Connect
+      - name: Start SSM Agent via EC2 Instance Connect
         run: |
-          # Generate ephemeral key và push ngay — sau đó SSH 1 lần duy nhất để cài SSM
           ssh-keygen -t ed25519 -f /tmp/bastion_key -N ""
           aws ec2-instance-connect send-ssh-public-key \
             --instance-id "${INSTANCE_ID}" \
@@ -88,27 +82,29 @@ jobs:
             --ssh-public-key file:///tmp/bastion_key.pub
           chmod 600 /tmp/bastion_key
 
-          # SSH ngay lập tức — toàn bộ cài đặt phải xong trong 60s
+          # SSH ngay — toàn bộ lệnh phải xong trong 60s
           ssh -i /tmp/bastion_key \
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=10 \
               ubuntu@${BASTION_IP} "
-            # Cài SSM Agent nếu chưa có
-            if ! systemctl is-active --quiet amazon-ssm-agent 2>/dev/null; then
-              echo 'Installing SSM Agent...'
+            # SSM Agent trên Ubuntu được cài qua snap
+            # Dùng 'snap start' thay vì systemctl
+            if ! sudo snap services amazon-ssm-agent | grep -q 'active'; then
+              echo 'Installing SSM Agent via snap...'
               sudo snap install amazon-ssm-agent --classic
-              sudo systemctl enable amazon-ssm-agent
-              sudo systemctl start amazon-ssm-agent
             else
-              echo 'SSM Agent already running'
+              echo 'SSM Agent snap already installed'
             fi
-            sudo systemctl status amazon-ssm-agent --no-pager
+
+            echo 'Starting SSM Agent...'
+            sudo snap start amazon-ssm-agent
+            sudo snap services amazon-ssm-agent
           "
-          echo "SSM Agent installed — ephemeral key can now expire safely"
+          echo "SSM Agent started — EC2 Instance Connect key can now expire"
 
       - name: Wait for SSM Agent to come Online
         run: |
-          echo "Waiting for SSM Agent to register (up to 3 min)..."
+          echo "Waiting for SSM Agent to register with AWS (up to 3 min)..."
           for i in $(seq 1 18); do
             STATUS=$(aws ssm describe-instance-information \
               --filters "Key=InstanceIds,Values=${INSTANCE_ID}" \
@@ -118,7 +114,7 @@ jobs:
               echo "SSM Agent is Online ✅ (attempt ${i})"
               break
             fi
-            echo "Attempt ${i}/18: SSM status=${STATUS}, waiting 10s..."
+            echo "Attempt ${i}/18: status=${STATUS}, waiting 10s..."
             sleep 10
           done
           if [ "${STATUS}" != "Online" ]; then
@@ -126,7 +122,7 @@ jobs:
             exit 1
           fi
 
-      # ── Phase 2: Tất cả tasks còn lại qua SSM (không bị expire) ─────────────
+      # ── Phase 2: Tất cả tasks qua SSM (không bị expire) ─────────────────────
       - name: "Install kubectl + helm on Bastion"
         run: |
           CMD_ID=$(aws ssm send-command \
@@ -134,26 +130,17 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --timeout-seconds 300 \
             --parameters 'commands=[
-              "set -euo pipefail",
               "if ! command -v kubectl &>/dev/null; then KUBECTL_VERSION=$(curl -fsSL https://dl.k8s.io/release/stable.txt); curl -fsSL \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl\" -o /tmp/kubectl && mv /tmp/kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl && echo kubectl installed; else echo kubectl already installed; fi",
               "if ! command -v helm &>/dev/null; then curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash && echo helm installed; else echo helm already installed; fi"
             ]' \
             --query "Command.CommandId" --output text)
 
-          echo "Waiting for install-tools command ${CMD_ID}..."
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}"
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" \
+          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}"
+          aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
             --query "StandardOutputContent" --output text
 
-      # ── Upload values.yaml via SSM ───────────────────────────────────────────
       - name: "Upload Helm values to Bastion via SSM"
         run: |
-          # Encode values.yaml thành base64 để truyền qua SSM parameter
           NGINX_B64=$(base64 -w 0 modules/ingress-nginx/values.yaml)
           ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
 
@@ -169,12 +156,9 @@ jobs:
             ]" \
             --query "Command.CommandId" --output text)
 
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}"
+          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}"
           echo "Values uploaded"
 
-      # ── Configure kubectl ────────────────────────────────────────────────────
       - name: "Configure kubectl on Bastion"
         run: |
           CMD_ID=$(aws ssm send-command \
@@ -188,13 +172,8 @@ jobs:
             ]" \
             --query "Command.CommandId" --output text)
 
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}"
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" \
+          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}"
+          aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
             --query "StandardOutputContent" --output text
 
       # ── 1. AWS Load Balancer Controller ──────────────────────────────────────
@@ -218,16 +197,10 @@ jobs:
             --query "Command.CommandId" --output text)
 
           echo "Waiting for LBC install (up to 10min)..."
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}"
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" \
+          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}"
+          aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
             --query "StandardOutputContent" --output text
 
-      # ── Wait for LBC webhook TLS cert ────────────────────────────────────────
       - name: "Wait for LBC webhook to be ready"
         run: |
           CMD_ID=$(aws ssm send-command \
@@ -243,9 +216,7 @@ jobs:
             ]" \
             --query "Command.CommandId" --output text)
 
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}"
+          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}"
 
       # ── 2. ingress-nginx ──────────────────────────────────────────────────────
       - name: "2/3 Install ingress-nginx"
@@ -267,13 +238,8 @@ jobs:
             --query "Command.CommandId" --output text)
 
           echo "Waiting for ingress-nginx install (up to 15min)..."
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}"
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" \
+          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}"
+          aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
             --query "StandardOutputContent" --output text
 
       # ── 3. ArgoCD ─────────────────────────────────────────────────────────────
@@ -295,13 +261,8 @@ jobs:
             --query "Command.CommandId" --output text)
 
           echo "Waiting for ArgoCD install (up to 15min)..."
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}"
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" \
+          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}"
+          aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
             --query "StandardOutputContent" --output text
 
       # ── Verify ────────────────────────────────────────────────────────────────
@@ -324,13 +285,8 @@ jobs:
             ]" \
             --query "Command.CommandId" --output text)
 
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}"
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" \
+          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}"
+          aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
             --query "StandardOutputContent" --output text
 
       - name: Post bootstrap summary
