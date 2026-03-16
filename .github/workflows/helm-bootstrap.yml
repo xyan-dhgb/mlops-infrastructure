@@ -158,6 +158,34 @@ jobs:
 
           echo "Helm values files synced to bastion"
 
+      - name: Install tools on Bastion (kubectl + helm)
+        run: |
+          ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
+            ubuntu@${BASTION_IP} "
+            set -euo pipefail
+
+            # Install kubectl if not present
+            if ! command -v kubectl &>/dev/null; then
+              echo 'Installing kubectl...'
+              KUBECTL_VERSION=\$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+              curl -fsSL \"https://dl.k8s.io/release/\${KUBECTL_VERSION}/bin/linux/amd64/kubectl\" \
+                -o /usr/local/bin/kubectl
+              chmod +x /usr/local/bin/kubectl
+              echo \"kubectl \$(kubectl version --client --short 2>/dev/null || kubectl version --client) installed\"
+            else
+              echo \"kubectl already installed: \$(kubectl version --client --short 2>/dev/null || true)\"
+            fi
+
+            # Install helm if not present
+            if ! command -v helm &>/dev/null; then
+              echo 'Installing helm...'
+              curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+              echo \"helm \$(helm version --short) installed\"
+            else
+              echo \"helm already installed: \$(helm version --short)\"
+            fi
+            "
+
       - name: Configure kubectl on Bastion
         run: |
           ssh -i /tmp/bastion_key -o StrictHostKeyChecking=no \
