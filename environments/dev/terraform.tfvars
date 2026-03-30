@@ -8,7 +8,7 @@ private_subnet_cidr = ["10.0.10.0/24", "10.0.20.0/24"]
 
 # EKS Cluster Configuration
 cluster_name               = "mlops-infr-dev-eks"
-cluster_version            = "1.32"
+cluster_version            = "1.35"
 cluster_log_retention_days = 7
 
 # Worker Node Configuration
@@ -21,6 +21,3 @@ node_max_size       = 4
 # Bastion Host 
 bastion_ssh_key_name     = "bastion-host"
 bastion_allowed_ssh_cidr = "0.0.0.0/0"
-
-# Ingress Nginx
-ingress_nginx_chart_version = "4.14.3"

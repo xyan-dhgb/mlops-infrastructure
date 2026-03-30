@@ -41,7 +41,6 @@ rm -f /tmp/kubectl /tmp/kubectl.sha256
 kubectl version --client
 
 # 5. Install Helm
-#    Required for bootstrapping: aws-load-balancer-controller, ingress-nginx, argocd
 echo "--- Installing Helm ---"
 
 curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor -o /usr/share/keyrings/helm.gpg
