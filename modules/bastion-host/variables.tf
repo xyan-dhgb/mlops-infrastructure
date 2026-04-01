@@ -6,7 +6,7 @@ variable "bastion_name" {
 
 variable "bastion_instance_type" {
   type        = string
-  default     = "t3.micro"
+  default     = "t3.nano"
   description = "The instance type of the Bastion Host"
 }
 

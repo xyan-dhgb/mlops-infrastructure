@@ -30,6 +30,13 @@ module "eks" {
   node_desired_size               = var.node_desired_size
   node_min_size                   = var.node_min_size
   node_max_size                   = var.node_max_size
+
+  # ML Pipeline Node Group
+  ml_node_instance_types = var.ml_node_instance_types
+  ml_node_capacity_type  = var.ml_node_capacity_type
+  ml_node_desired_size   = var.ml_node_desired_size
+  ml_node_min_size       = var.ml_node_min_size
+  ml_node_max_size       = var.ml_node_max_size
 }
 
 module "bastion" {

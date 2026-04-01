@@ -60,3 +60,34 @@ variable "node_max_size" {
   description = "Maximum number of worker nodes"
   type        = number
 }
+
+# ML Pipeline Node Group
+variable "ml_node_instance_types" {
+  description = "EC2 instance types for ML pipeline nodes (GPU recommended for EfficientNet training)"
+  type        = list(string)
+  default     = ["g4dn.xlarge"]
+}
+
+variable "ml_node_capacity_type" {
+  description = "Capacity type for ML nodes (ON_DEMAND recommended for GPU stability)"
+  type        = string
+  default     = "ON_DEMAND"
+}
+
+variable "ml_node_desired_size" {
+  description = "Desired number of ML pipeline nodes (0 = scale to zero when idle)"
+  type        = number
+  default     = 0
+}
+
+variable "ml_node_min_size" {
+  description = "Minimum number of ML pipeline nodes (0 = scale to zero)"
+  type        = number
+  default     = 0
+}
+
+variable "ml_node_max_size" {
+  description = "Maximum number of ML pipeline nodes"
+  type        = number
+  default     = 2
+}
