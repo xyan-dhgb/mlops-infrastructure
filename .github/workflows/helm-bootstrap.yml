@@ -342,7 +342,28 @@ jobs:
 
           [ "${FAILED:-0}" = "1" ] && exit 1 || true
 
-      # ── Verify ────────────────────────────────────────────────────────────────
+      # 4. NVIDIA Device Plugin
+      - name: "4/4 Install NVIDIA Device Plugin"
+        id: install_nvidia
+        run: |
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --timeout-seconds 120 \
+            --parameters "commands=[
+              \"export HOME=/root\",
+              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
+              \"kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/nvidia-device-plugin.yml\",
+              \"echo NVIDIA Device Plugin applied\"
+            ]" \
+            --query "Command.CommandId" --output text)
+
+          aws ssm wait command-executed \
+            --command-id "${CMD_ID}" \
+            --instance-id "${INSTANCE_ID}" || FAILED=1
+
+          [ "${FAILED:-0}" = "1" ] && exit 1 || true
+          # Verify
       - name: Verify all add-ons are healthy
         id: verify
         run: |
