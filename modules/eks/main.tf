@@ -51,7 +51,7 @@ resource "aws_eks_cluster" "main" {
   }
 }
 
-# Launch Template for Worker Nodes — required to attach a custom security group.
+# Launch Template for Worker Nodes - required to attach a custom security group.
 # Without this, nodes only inherit the auto-created cluster SG and cannot be
 # reached by the control plane on kubelet port 10250.
 resource "aws_launch_template" "eks_nodes" {
@@ -62,7 +62,7 @@ resource "aws_launch_template" "eks_nodes" {
   # The cluster SG is added automatically by EKS when using a managed node group.
   vpc_security_group_ids = [var.worker_nodes_security_group_id]
 
-  # Use IMDSv2 (Instance Metadata Service v2) — security best practice
+  # Use IMDSv2 (Instance Metadata Service v2) - security best practice
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
@@ -131,3 +131,53 @@ resource "aws_iam_openid_connect_provider" "eks" {
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
 
+resource "aws_eks_node_group" "ml_nodes" {
+  cluster_name    = aws_eks_cluster.main.name
+  node_group_name = "${local.cluster_name}-ml-node-group"
+  node_role_arn   = aws_iam_role.worker_nodes_role.arn
+  subnet_ids      = var.private_subnet_ids
+  capacity_type   = var.ml_node_capacity_type
+  instance_types  = var.ml_node_instance_types
+
+  # Reference the launch template so the worker node SG is attached
+  launch_template {
+    id      = aws_launch_template.eks_nodes.id
+    version = aws_launch_template.eks_nodes.latest_version
+  }
+
+  # Node group scaling configuration - starts at 0, Cluster Autoscaler scales up on demand
+  scaling_config {
+    desired_size = var.ml_node_desired_size
+    max_size     = var.ml_node_max_size
+    min_size     = var.ml_node_min_size
+  }
+
+  # Update strategy
+  update_config {
+    max_unavailable_percentage = 50
+  }
+
+  # Isolate ML workload: system/ingress pods cannot be scheduled here
+  labels = {
+    role     = "ml-pipeline"
+    workload = "gpu-training"
+  }
+
+  # Taint: only pods with matching toleration will be scheduled
+  taint {
+    key    = "workload"
+    value  = "ml"
+    effect = "NO_SCHEDULE"
+  }
+
+  # Ensure IAM roles are created before node group
+  depends_on = [
+    aws_iam_role_policy_attachment.worker_nodes_policy,
+    aws_iam_role_policy_attachment.worker_nodes_cni_policy,
+    aws_iam_role_policy_attachment.worker_nodes_registry_policy
+  ]
+
+  tags = {
+    Name = "${local.cluster_name}-ml-node-group"
+  }
+}
