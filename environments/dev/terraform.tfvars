@@ -12,7 +12,7 @@ cluster_version            = "1.35"
 cluster_log_retention_days = 7
 
 # Worker Node Configuration
-node_instance_types = ["t3.medium"]
+node_instance_types = ["m5.large"]
 node_capacity_type  = "ON_DEMAND"
 node_desired_size   = 2
 node_min_size       = 2
@@ -21,3 +21,10 @@ node_max_size       = 4
 # Bastion Host 
 bastion_ssh_key_name     = "bastion-host"
 bastion_allowed_ssh_cidr = "0.0.0.0/0"
+
+# Machine Learning Node Configuration (GPU for EfficientNet-B3 + XRAI training)
+ml_node_instance_types = ["g4dn.xlarge"] # NVIDIA T4 16GB VRAM — EfficientNet-B3 + XRAI
+ml_node_capacity_type  = "ON_DEMAND"     # GPU SPOT thường bị AWS reclaim giữa chừng
+ml_node_min_size       = 0               # Scale-to-zero khi không training
+ml_node_max_size       = 2
+ml_node_desired_size   = 0               # Cluster Autoscaler sẽ scale up khi có job
