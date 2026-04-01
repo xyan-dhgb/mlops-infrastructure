@@ -84,3 +84,30 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+# ML Pipeline Node Configuration
+variable "ml_node_instance_types" {
+  description = "EC2 instance types for ML pipeline nodes (GPU recommended)"
+  type        = list(string)
+}
+
+variable "ml_node_capacity_type" {
+  description = "Capacity type for ML nodes (ON_DEMAND or SPOT)"
+  type        = string
+  default     = "ON_DEMAND"
+}
+
+variable "ml_node_desired_size" {
+  description = "Desired number of ML pipeline nodes"
+  type        = number
+}
+
+variable "ml_node_min_size" {
+  description = "Minimum number of ML pipeline nodes"
+  type        = number
+}
+
+variable "ml_node_max_size" {
+  description = "Maximum number of ML pipeline nodes"
+  type        = number
+}
