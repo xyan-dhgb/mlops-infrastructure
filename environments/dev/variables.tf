@@ -111,3 +111,8 @@ variable "ml_node_max_size" {
   description = "Maximum number of ML pipeline nodes"
   type        = number
 }
+
+variable "domain_name" {
+  description = "Domain name"
+  type        = string
+}
