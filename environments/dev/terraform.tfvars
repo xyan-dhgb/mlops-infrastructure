@@ -28,3 +28,5 @@ ml_node_capacity_type  = "ON_DEMAND"
 ml_node_min_size       = 0 # Scale-to-zero when not training
 ml_node_max_size       = 2
 ml_node_desired_size   = 0 # Cluster Autoscaler will scale up when there is a job
+
+domain_name = "kltn-argocd-ui.me"
