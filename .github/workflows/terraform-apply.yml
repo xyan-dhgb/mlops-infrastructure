@@ -82,49 +82,36 @@ jobs:
       - name: Post apply summary to GitHub Step Summary
         if: always()
         run: |
-          echo "## Terraform Apply — ${{ github.event.inputs.environment }} Environment" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Step              | Result |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------------------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Init              | \`${{ steps.init.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Download Plan     | \`${{ steps.plan.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Apply             | \`${{ steps.apply.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Plan Commit SHA:** \`${{ github.event.inputs.plan_commit_sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Apply Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by:** \`${{ github.actor }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "<details><summary>Apply Output</summary>" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat apply.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          {
+            cat << 'EOF'
+          ## Terraform Apply — ${{ github.event.inputs.environment }} Environment
+
+          | Step          | Result |
+          |---------------|--------|
+          | Init          | `${{ steps.init.outcome }}` |
+          | Download Plan | `${{ steps.plan.outcome }}` |
+          | Apply         | `${{ steps.apply.outcome }}` |
+
+          **Plan SHA:** `${{ github.event.inputs.plan_commit_sha }}` &nbsp;|&nbsp; **Commit:** `${{ github.sha }}` &nbsp;|&nbsp; **By:** `${{ github.actor }}`
+
+          <details><summary>Apply Output</summary>
+
+          ```
+          EOF
+            cat apply.txt
+            printf '```\n</details>\n'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify on failure
         if: failure()
         uses: actions/github-script@v7
+        env:
+          TF_ENVIRONMENT: ${{ github.event.inputs.environment }}
+          WORKFLOW_TYPE: apply
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const sha = context.sha.substring(0, 7);
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-
-            // Determine which step failed to provide a more specific reason
-            const applyOutcome  = '${{ steps.apply.outcome }}';
-            const verifyOutcome = '${{ steps.verify.outcome }}';
-            let failReason = '';
-            if (applyOutcome === 'failure') {
-              failReason = '`terraform apply` failed. Check output in run log.';
-            } else if (verifyOutcome === 'failure') {
-              failReason = '`terraform apply` success but **ingress-nginx is not healthy**. '
-                + 'Helm release may be in failed state. Run `helm status ingress-nginx -n ingress-nginx` to check.';
-            }
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `❌ Terraform Apply FAILED on ${{ github.event.inputs.environment }} — ${sha}`,
-              body: `## Terraform Apply Failed\n\n**Environment:** \`${{ github.event.inputs.environment }}\`\n**Branch:** \`dev\`\n**Commit:** \`${context.sha}\`\n**Triggered by:** \`${context.actor}\`\n\n**Nguyên nhân:** ${failReason}\n\n[🔗 View failed run](${runUrl})\n\n> Kiểm tra và fix trước khi deploy lại.`,
-              labels: ['terraform', 'infrastructure', 'bug'],
-            });
+            const notify = require('./.github/scripts/notify-failure.js');
+            await notify({ github, context });

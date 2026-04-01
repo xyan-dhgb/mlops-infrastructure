@@ -117,39 +117,38 @@ jobs:
       - name: Post destroy summary to GitHub Step Summary
         if: always()
         run: |
-          echo "## Terraform Destroy — ${{ github.event.inputs.environment }} Environment" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
-          echo "> Infrastructure has been destroyed. This action is irreversible." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Step           | Result |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Init           | \`${{ steps.init.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Plan Destroy   | \`${{ steps.plan.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Destroy        | \`${{ steps.destroy.outcome }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by:** \`${{ github.actor }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "<details><summary>Destroy Output</summary>" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat destroy.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          {
+            cat << 'EOF'
+          ## Terraform Destroy — ${{ github.event.inputs.environment }} Environment
+
+          > [!CAUTION]
+          > Infrastructure has been destroyed. This action is irreversible.
+
+          | Step         | Result |
+          |--------------|--------|
+          | Init         | `${{ steps.init.outcome }}` |
+          | Plan Destroy | `${{ steps.plan.outcome }}` |
+          | Destroy      | `${{ steps.destroy.outcome }}` |
+
+          **Commit:** `${{ github.sha }}` &nbsp;|&nbsp; **By:** `${{ github.actor }}`
+
+          <details><summary>Destroy Output</summary>
+
+          ```
+          EOF
+            cat destroy.txt
+            printf '```\n</details>\n'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify on failure
         if: failure()
         uses: actions/github-script@v7
+        env:
+          TF_ENVIRONMENT: ${{ github.event.inputs.environment }}
+          WORKFLOW_TYPE: destroy
+          REF_NAME: ${{ github.ref_name }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const sha = context.sha.substring(0, 7);
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Terraform Destroy FAILED on ${{ github.event.inputs.environment }} — ${sha}`,
-              body: `## Terraform Destroy Failed\n\n**Environment:** \`${{ github.event.inputs.environment }}\`\n**Branch:** \`${{ github.ref_name }}\`\n**Commit:** \`${context.sha}\`\n**Triggered by:** \`${context.actor}\`\n\n[View failed run](${runUrl})\n\n> Infrastructure may be in a partial state. Manual intervention required.`,
-              labels: ["terraform", "infrastructure", "bug"],
-            });
+            const notify = require('./.github/scripts/notify-failure.js');
+            await notify({ github, context });
