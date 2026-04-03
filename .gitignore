@@ -42,3 +42,5 @@ terraform.rc
 *.pem
 *.csv
 *.pdf
+*.pub
+new-bastion-key
