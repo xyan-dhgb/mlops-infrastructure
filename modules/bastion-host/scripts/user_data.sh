@@ -43,24 +43,11 @@ kubectl version --client
 # 5. Install Helm
 echo "--- Installing Helm ---"
 
-HELM_VERSION=$(curl -s --http1.1 https://api.github.com/repos/helm/helm/releases/latest \
-  | grep '"tag_name"' | cut -d'"' -f4)
-
-echo "Helm version to install: ${HELM_VERSION}"
-
-# Add --http1.1 to download tar.gz
-curl -L --http1.1 "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
-  -o /tmp/helm.tar.gz
-
-# Verify file download success before extract
-if [ ! -s /tmp/helm.tar.gz ]; then
-  echo "ERROR: helm.tar.gz is empty or missing"
-  exit 1
-fi
-
-tar -zxvf /tmp/helm.tar.gz -C /tmp
-mv /tmp/linux-amd64/helm /usr/local/bin/helm
-rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
+# Bắt buộc dùng --http1.1 và thêm --retry để tránh lỗi curl (92) HTTP/2 và gpg lỗi
+curl --http1.1 -fsSL --retry 3 https://baltocdn.com/helm/signing.asc | gpg --dearmor | tee /usr/share/keyrings/helm.gpg > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | tee /etc/apt/sources.list.d/helm-stable-debian.list
+apt-get update -y
+apt-get install -y helm
 
 helm version
 
