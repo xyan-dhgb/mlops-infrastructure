@@ -79,3 +79,25 @@ module "route53" {
 
   domain_name = var.domain_name
 }
+
+
+# EKS Access Entry for Bastion Host
+data "aws_iam_role" "bastion_role" {
+  name       = "KLTN-Bastion-Host-ssm-role"
+  depends_on = [module.bastion]
+}
+
+resource "aws_eks_access_entry" "bastion_admin" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = data.aws_iam_role.bastion_role.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "bastion_admin_policy" {
+  cluster_name  = module.eks.cluster_name
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  principal_arn = data.aws_iam_role.bastion_role.arn
+  access_scope {
+    type = "cluster"
+  }
+}
