@@ -40,15 +40,28 @@ rm -f /tmp/kubectl /tmp/kubectl.sha256
 
 kubectl version --client
 
-# 5. Install Helm with the reliable way
+# 5. Install Helm
 echo "--- Installing Helm ---"
 
-# Download the binary directly
-HELM_VERSION=$(curl -s --http1.1 https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
-curl -LO --http1.1 "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
-# Extract and install
-tar -zxvf helm-${HELM_VERSION}-linux-amd64.tar.gz
-mv linux-amd64/helm /usr/local/bin/helm
+HELM_VERSION=$(curl -s --http1.1 https://api.github.com/repos/helm/helm/releases/latest \
+  | grep '"tag_name"' | cut -d'"' -f4)
+
+echo "Helm version to install: ${HELM_VERSION}"
+
+# Add --http1.1 to download tar.gz
+curl -L --http1.1 "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+  -o /tmp/helm.tar.gz
+
+# Verify file download success before extract
+if [ ! -s /tmp/helm.tar.gz ]; then
+  echo "ERROR: helm.tar.gz is empty or missing"
+  exit 1
+fi
+
+tar -zxvf /tmp/helm.tar.gz -C /tmp
+mv /tmp/linux-amd64/helm /usr/local/bin/helm
+rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
+
 helm version
 
 echo "=== Bootstrap finished at $(date) ==="
