@@ -40,13 +40,16 @@ rm -f /tmp/kubectl /tmp/kubectl.sha256
 
 kubectl version --client
 
-# 5. Install Helm
+# 5. Install Helm with the reliable way
 echo "--- Installing Helm ---"
 
-curl -fsSL --retry 3 --http1.1 https://baltocdn.com/helm/signing.asc | gpg --dearmor -o /usr/share/keyrings/helm.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | tee /etc/apt/sources.list.d/helm-stable-debian.list
-apt-get update
-apt-get install -y helm
+# Download the binary directly
+HELM_VERSION=$(curl -s --http1.1 https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+curl -LO --http1.1 "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+# Extract and install
+tar -zxvf helm-${HELM_VERSION}-linux-amd64.tar.gz
+mv linux-amd64/helm /usr/local/bin/helm
+helm version
 
 echo "=== Bootstrap finished at $(date) ==="
 echo "NOTE: To configure kubectl after SSH-ing in:"
