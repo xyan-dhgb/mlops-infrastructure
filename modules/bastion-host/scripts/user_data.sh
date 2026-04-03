@@ -44,29 +44,24 @@ kubectl version --client
 # 5. Install Helm
 echo "--- Installing Helm ---"
 
-# Download key into file with loop retry using wget (using GnuTLS) to bypass OpenSSL 3.0 "unexpected eof" error of curl on Ubuntu 22.04
-for i in {1..5}; do
-  echo "Downloading Helm signing key (Attempt $i)..."
-  if wget -qO /tmp/helm.asc https://baltocdn.com/helm/signing.asc; then
-    if [ -s /tmp/helm.asc ]; then
-      echo "Key downloaded successfully."
-      break
-    fi
-  fi
-  sleep 3
-done
+HELM_VERSION=$(curl -fsSL --http1.1 https://api.github.com/repos/helm/helm/releases/latest \
+  | jq -r '.tag_name')
 
-if [ ! -s /tmp/helm.asc ]; then
-  echo "ERROR: Failed to download Helm signing key after 5 attempts."
+echo "Installing Helm ${HELM_VERSION}..."
+
+curl -fsSL --http1.1 \
+  "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+  -o /tmp/helm.tar.gz
+
+# Verify file không rỗng
+if [ ! -s /tmp/helm.tar.gz ]; then
+  echo "ERROR: helm.tar.gz download failed"
   exit 1
 fi
 
-cat /tmp/helm.asc | gpg --dearmor | tee /usr/share/keyrings/helm.gpg > /dev/null
-rm -f /tmp/helm.asc
-
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | tee /etc/apt/sources.list.d/helm-stable-debian.list
-apt-get update -y
-apt-get install -y helm
+tar -zxf /tmp/helm.tar.gz -C /tmp
+mv /tmp/linux-amd64/helm /usr/local/bin/helm
+rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
 
 helm version
 
