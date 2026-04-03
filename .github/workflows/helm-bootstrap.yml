@@ -6,10 +6,7 @@ name: "Helm Bootstrap - K8s Add-ons via SSM"
 on:
   workflow_dispatch:
     inputs:
-      bastion_instance_id:
-        description: "EC2 Instance ID của Bastion Host (vd: i-0abc123def456)"
-        required: true
-        type: string
+
       eks_cluster_name:
         description: "Tên EKS cluster"
         required: true
@@ -47,10 +44,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Set common variables
+      - name: Find Bastion Instance ID and Set Vars
         run: |
-          echo "INSTANCE_ID=${{ github.event.inputs.bastion_instance_id }}" >> $GITHUB_ENV
-          echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}"   >> $GITHUB_ENV
+          echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> $GITHUB_ENV
+          
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=*bastion*" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+            
+          if [ "$INSTANCE_ID" == "None" ] || [ -z "$INSTANCE_ID" ]; then
+            echo "ERROR: Failed to find a running bastion instance!"
+            exit 1
+          fi
+          
+          echo "Found active Bastion: $INSTANCE_ID"
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
 
       # ── Phase 1: EC2 Instance Connect → Start SSM Agent (<30s) ──────────────
       - name: Resolve Bastion AZ and Public IP
@@ -115,27 +124,7 @@ jobs:
       # Helper function: gửi SSM command, chờ, in output + stderr nếu fail
       # Sử dụng trong mỗi step bằng cách source /tmp/ssm_helper.sh
 
-      - name: "Install kubectl + helm on Bastion"
-        run: |
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 300 \
-            --parameters 'commands=[
-              "if ! command -v kubectl &>/dev/null; then KUBECTL_VERSION=$(curl -fsSL https://dl.k8s.io/release/stable.txt) && curl -fsSL \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl\" -o /tmp/kubectl && mv /tmp/kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl && echo kubectl installed; else echo kubectl already installed; fi",
-              "if ! command -v helm &>/dev/null; then curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash && echo helm installed; else echo helm already installed; fi"
-            ]' \
-            --query "Command.CommandId" --output text)
 
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || FAILED=1
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "[StandardOutputContent, StandardErrorContent]" --output text
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
 
       - name: "Upload Helm values to Bastion via SSM"
         run: |
@@ -401,7 +390,7 @@ jobs:
           | ingress-nginx                | `${{ steps.install_nginx.outcome }}` |
           | ArgoCD                       | `${{ steps.install_argocd.outcome }}` |
 
-          **Bastion:** `${{ github.event.inputs.bastion_instance_id }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
+          **Bastion:** `${{ env.INSTANCE_ID }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
           EOF
 
 # Get ArgoCD secret for authentication:
