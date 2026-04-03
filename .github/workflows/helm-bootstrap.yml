@@ -6,7 +6,6 @@ name: "Helm Bootstrap - K8s Add-ons via SSM"
 on:
   workflow_dispatch:
     inputs:
-
       eks_cluster_name:
         description: "Tên EKS cluster"
         required: true
@@ -47,17 +46,17 @@ jobs:
       - name: Find Bastion Instance ID and Set Vars
         run: |
           echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> $GITHUB_ENV
-          
+
           INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=*bastion*" "Name=instance-state-name,Values=running" \
+            --filters "Name=tag:Name,Values=*bastion*,*Bastion*" "Name=instance-state-name,Values=running" \
             --query "Reservations[0].Instances[0].InstanceId" \
             --output text)
-            
+
           if [ "$INSTANCE_ID" == "None" ] || [ -z "$INSTANCE_ID" ]; then
             echo "ERROR: Failed to find a running bastion instance!"
             exit 1
           fi
-          
+
           echo "Found active Bastion: $INSTANCE_ID"
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
 
@@ -123,8 +122,6 @@ jobs:
       # ── Phase 2: Tất cả tasks qua SSM ───────────────────────────────────────
       # Helper function: gửi SSM command, chờ, in output + stderr nếu fail
       # Sử dụng trong mỗi step bằng cách source /tmp/ssm_helper.sh
-
-
 
       - name: "Upload Helm values to Bastion via SSM"
         run: |
