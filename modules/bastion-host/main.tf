@@ -68,6 +68,22 @@ resource "aws_iam_role" "bastion_ssm" {
   }
 }
 
+resource "aws_iam_role_policy" "bastion_eks_describe" {
+  name = "${var.bastion_name}-eks-describe"
+  role = aws_iam_role.bastion_ssm.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "eks:DescribeCluster"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy_attachment" "bastion_ssm" {
   role       = aws_iam_role.bastion_ssm.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
@@ -92,8 +108,7 @@ resource "aws_instance" "bastion_host" {
 
   vpc_security_group_ids = [aws_security_group.allow_ssh.id]
 
-  user_data                   = base64encode(file("${path.module}/scripts/user_data.sh"))
-  user_data_replace_on_change = true
+  user_data = base64encode(file("${path.module}/scripts/user_data.sh"))
 
   tags = {
     Name = "${var.bastion_name}-${tonumber(each.key) + 1}"
