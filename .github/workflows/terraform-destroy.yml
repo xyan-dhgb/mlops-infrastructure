@@ -77,12 +77,14 @@ jobs:
         id: plan
         env:
           TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
         run: terraform plan -destroy -no-color -input=false 2>&1 | tee destroy-plan.txt
 
       - name: Terraform Destroy
         id: destroy
         env:
           TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
         run: |
           set -o pipefail
           terraform destroy -auto-approve -no-color -input=false 2>&1 | tee destroy.txt
