@@ -306,17 +306,5 @@ kubectl create secret generic mlflow-secret \
 | **Dùng Registry**  | Không bắt buộc           | Bắt buộc sau Model Validation                       |
 | **Mục đích chính** | Thử nghiệm, so sánh runs | Lưu model chính thức, quản lý version               |
 
----
-
-## Checklist Triển Khai
-
-- [ ] RDS PostgreSQL tạo database `mlflow`
-- [ ] S3 Bucket `mlops-mlflow-artifacts-dev` đã tạo
-- [ ] IAM Role IRSA cho MLflow pod có quyền S3
-- [ ] Kubernetes Secret `mlflow-secret` đã tạo
-- [ ] Deployment + Service đã apply
-- [ ] Verify: `kubectl get pods -n mlops | grep mlflow`
-- [ ] Port-forward test từ local: `http://localhost:5000`
-
 > [!NOTE]
 > Tài liệu này áp dụng cho môi trường: AWS EKS ap-southeast-1 | Cluster: mlops-infr-dev-eks
