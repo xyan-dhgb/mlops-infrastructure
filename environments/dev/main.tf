@@ -42,7 +42,7 @@ module "eks" {
 # Attach Public Key in local machine to AWS 
 resource "aws_key_pair" "bastion_key" {
   key_name   = var.bastion_ssh_key_name
-  public_key = file("${path.module}/../../new-bastion-key.pub")
+  public_key = var.BASTION_PUBLIC_KEY
 }
 
 module "bastion" {
