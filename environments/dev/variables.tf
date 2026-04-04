@@ -116,3 +116,8 @@ variable "domain_name" {
   description = "Domain name"
   type        = string
 }
+
+variable "BASTION_PUBLIC_KEY" {
+  description = "Public key for bastion host"
+  type        = string
+}

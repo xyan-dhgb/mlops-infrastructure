@@ -39,12 +39,18 @@ module "eks" {
   ml_node_max_size       = var.ml_node_max_size
 }
 
+# Attach Public Key in local machine to AWS 
+resource "aws_key_pair" "bastion_key" {
+  key_name   = var.bastion_ssh_key_name
+  public_key = var.BASTION_PUBLIC_KEY
+}
+
 module "bastion" {
   source = "../../modules/bastion-host"
 
   vpc_id           = module.vpc.vpc_id
   subnet_ids       = module.vpc.public_subnet_ids
-  ssh_key_name     = var.bastion_ssh_key_name
+  ssh_key_name     = aws_key_pair.bastion_key.key_name
   allowed_ssh_cidr = var.bastion_allowed_ssh_cidr
 }
 
