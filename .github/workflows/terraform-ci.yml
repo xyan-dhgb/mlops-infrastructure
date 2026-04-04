@@ -52,10 +52,14 @@ jobs:
         continue-on-error: true
 
       - name: Terraform Validate
+        env:
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
         id: validate
         run: terraform validate -no-color
 
       - name: Terraform Plan
+        env:
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
         id: plan
         run: terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan.txt
 
