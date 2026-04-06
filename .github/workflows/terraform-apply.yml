@@ -75,6 +75,7 @@ jobs:
         id: apply
         env:
           TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
+          TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
         run: |
           set -o pipefail
           terraform apply -auto-approve -no-color -input=false tfplan 2>&1 | tee apply.txt
