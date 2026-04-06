@@ -14,31 +14,11 @@ backendStore:
   databaseMigration: true
   postgres:
     enabled: true
-    host:
-      valueFrom:
-        secretKeyRef:
-          name: "mlflow-secret"
-          key: "db-host"
-    port:
-      valueFrom:
-        secretKeyRef:
-          name: "mlflow-secret"
-          key: "db-port"
-    database:
-      valueFrom:
-        secretKeyRef:
-          name: "mlflow-secret"
-          key: "db-name"
-    user:
-      valueFrom:
-        secretKeyRef:
-          name: "mlflow-secret"
-          key: "db-user"
-    password:
-      valueFrom:
-        secretKeyRef:
-          name: "mlflow-secret"
-          key: "db-pass"
+    host: "__DB_HOST__"
+    port: 5432
+    database: "mlflow"
+    user: "mlflow"
+    password: "__DB_PASS__"
 
 artifactRoot:
   proxiedArtifactStorage: true
