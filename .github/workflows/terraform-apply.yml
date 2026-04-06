@@ -79,7 +79,7 @@ jobs:
           TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
         run: |
           # S3 Bucket
-          BUCKET="mlops-mlflow-artifacts-dev"
+          BUCKET="kltn-mlops-mlflow-artifacts-dev"
           S3_ADDR="module.mlflow.module.s3.aws_s3_bucket.mlflow_artifact"
 
           # Check if bucket exists on AWS
