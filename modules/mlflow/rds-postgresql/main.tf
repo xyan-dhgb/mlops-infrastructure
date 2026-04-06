@@ -37,7 +37,7 @@ resource "aws_security_group" "mlflow_rds_postgresql" {
 resource "aws_db_instance" "mlflow_rds_postgresql" {
   identifier        = var.identifier_rds_postgresql
   engine            = "postgres"
-  engine_version    = "15.4"
+  engine_version    = "16.4"
   instance_class    = "db.t3.micro"
   allocated_storage = 20
   storage_type      = "gp3"
