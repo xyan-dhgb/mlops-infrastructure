@@ -1,7 +1,7 @@
 variable "bucket_name" {
   description = "Name of the bucket"
   type        = string
-  default     = "mlops-mlflow-artifacts-dev"
+  default     = "kltn-mlops-mlflow-artifacts-dev"
 }
 
 variable "project_name" {
