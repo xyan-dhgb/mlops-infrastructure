@@ -1,0 +1,63 @@
+# Helm values for community-charts/mlflow
+# Placeholders được replace bởi sed trong helm-bootstrap.yml:
+#   __IRSA_ROLE_ARN__  → IAM Role ARN cho IRSA
+#   __S3_BUCKET__      → Tên S3 bucket artifacts
+#   __AWS_REGION__     → AWS region (vd: ap-southeast-1)
+
+serviceAccount:
+  create: true
+  name: "mlflow-sa"
+  annotations:
+    eks.amazonaws.com/role-arn: "__IRSA_ROLE_ARN__"
+
+backendStore:
+  databaseMigration: true
+  postgres:
+    enabled: true
+    host:
+      valueFrom:
+        secretKeyRef:
+          name: "mlflow-secret"
+          key: "db-host"
+    port:
+      valueFrom:
+        secretKeyRef:
+          name: "mlflow-secret"
+          key: "db-port"
+    database:
+      valueFrom:
+        secretKeyRef:
+          name: "mlflow-secret"
+          key: "db-name"
+    user:
+      valueFrom:
+        secretKeyRef:
+          name: "mlflow-secret"
+          key: "db-user"
+    password:
+      valueFrom:
+        secretKeyRef:
+          name: "mlflow-secret"
+          key: "db-pass"
+
+artifactRoot:
+  proxiedArtifactStorage: true
+  s3:
+    enabled: true
+    bucket: "__S3_BUCKET__"
+    awsRegion: "__AWS_REGION__"
+
+service:
+  type: ClusterIP
+  port: 5000
+
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
