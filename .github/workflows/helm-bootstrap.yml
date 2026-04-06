@@ -363,7 +363,7 @@ jobs:
             --db-instance-identifier "mlops-mlflow-rds-postgresql" \
             --query "DBInstances[0].Endpoint.Address" --output text)
 
-          S3_BUCKET="mlops-mlflow-artifacts-dev"
+          S3_BUCKET="kltn-mlops-mlflow-artifacts-dev"
 
           echo "IRSA: ${IRSA_ROLE_ARN}"
           echo "DB Host: ${DB_HOST}"
