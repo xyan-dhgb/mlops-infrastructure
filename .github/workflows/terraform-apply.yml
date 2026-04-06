@@ -71,11 +71,36 @@ jobs:
           aws s3 cp s3://kltn-tfstate-dev/plans/${{ github.event.inputs.environment }}/${{ github.event.inputs.plan_commit_sha }}/tfplan tfplan
           echo "✅ Plan downloaded successfully"
 
+      - name: Import existing AWS resources (if exist on AWS)
+        id: import
+        env:
+          TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
+          TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
+        run: |
+          # S3 Bucket
+          BUCKET="mlops-mlflow-artifacts-dev"
+          S3_ADDR="module.mlflow.module.s3.aws_s3_bucket.mlflow_artifact"
+
+          # Check if bucket exists on AWS
+          if aws s3api head-bucket --bucket "${BUCKET}" 2>/dev/null; then
+            # Check if bucket is already in state
+            if ! terraform state show "${S3_ADDR}" > /dev/null 2>&1; then
+              echo "→ Importing existing S3 bucket: ${BUCKET}"
+              terraform import "${S3_ADDR}" "${BUCKET}"
+            else
+              echo "→ S3 bucket already in state, skip import"
+            fi
+          else
+            echo "→ S3 bucket does not exist yet, skip import"
+          fi
+
       - name: Terraform Apply
         id: apply
         env:
           TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
           TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
         run: |
           set -o pipefail
           terraform apply -auto-approve -no-color -input=false tfplan 2>&1 | tee apply.txt

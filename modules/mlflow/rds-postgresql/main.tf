@@ -37,11 +37,12 @@ resource "aws_security_group" "mlflow_rds_postgresql" {
 resource "aws_db_instance" "mlflow_rds_postgresql" {
   identifier        = var.identifier_rds_postgresql
   engine            = "postgres"
-  engine_version    = "16.4"
+  engine_version    = "16"
   instance_class    = "db.t3.micro"
   allocated_storage = 20
   storage_type      = "gp3"
-  storage_encrypted = true
+  storage_encrypted  = true
+  auto_minor_version_upgrade = true
 
   db_name  = var.db_name
   username = var.db_username
