@@ -107,3 +107,23 @@ resource "aws_eks_access_policy_association" "bastion_admin_policy" {
     type = "cluster"
   }
 }
+
+module "mlflow" {
+  source = "../../modules/mlflow"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+
+  eks_cluster_name           = module.eks.cluster_name
+  eks_node_security_group_id = module.security_group.eks_worker_nodes_security_group_id
+  eks_oidc_provider_arn      = module.eks.cluster_oidc_provider_arn
+  eks_oidc_provider_url      = module.eks.cluster_oidc_issuer_url
+
+  mlflow_db_password = var.MLFLOW_DB_PASSWORD
+
+  depends_on = [module.eks]
+}

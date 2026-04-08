@@ -121,3 +121,9 @@ variable "BASTION_PUBLIC_KEY" {
   description = "Public key for bastion host"
   type        = string
 }
+
+variable "MLFLOW_DB_PASSWORD" {
+  description = "Password for MLflow RDS PostgreSQL database"
+  type        = string
+  sensitive   = true
+}

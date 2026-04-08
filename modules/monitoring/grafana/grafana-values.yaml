@@ -1,0 +1,21 @@
+# This is for Grafana K8s namespace
+
+# adminPassword is injected via GitHub Secrets
+
+service:
+  type: ClusterIP # Use for port-forwarding
+
+persistence:
+  enabled: false # Ephemeral storage for Grafana
+
+# Configure DataSource to connect to Prometheus in Prometheus namespace
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      # Format URL service: http://<service-name>.<namespace>.svc.cluster.local:<port>
+      url: http://prometheus-kube-prometheus-prometheus.prometheus.svc.cluster.local:9090
+      access: proxy
+      isDefault: true

@@ -60,7 +60,7 @@ jobs:
           echo "🔵 Found active Bastion: $INSTANCE_ID"
           echo "🔵 INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
 
-      # ── Phase 1: EC2 Instance Connect → Start SSM Agent (<30s) ──────────────
+      #  Phase 1: EC2 Instance Connect
       - name: Resolve Bastion AZ and Public IP
         run: |
           AZ=$(aws ec2 describe-instances \
