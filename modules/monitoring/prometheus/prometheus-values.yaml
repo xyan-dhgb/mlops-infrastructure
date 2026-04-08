@@ -1,0 +1,21 @@
+# This is for Prometheus K8s namespace
+
+# Disable Grafana because it will be installed in a separate namespace
+grafana:
+  enabled: false
+
+# Prometheus configuration
+# The Prometheus and Alertmanager configuration utilizes the Node's ephemeral storage (Node's disk/RAM) instead of requiring AWS to allocate expensive EBS (Persistent Volume) hard drives.
+prometheus:
+  prometheusSpec:
+    # Ephemeral storage - no PVC/EBS
+    storageSpec: {}
+    # Only store metrics data for 1 day
+    retention: 1d
+
+# Alertmanager configuration
+alertmanager:
+  alertmanagerSpec:
+    # Ephemeral storage - no PVC/EBS
+    storage:
+      emptyDir: {}
