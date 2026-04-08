@@ -45,7 +45,7 @@ jobs:
 
       - name: Find Bastion Instance ID and Set Vars
         run: |
-          echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> $GITHUB_ENV
+          echo "📣 CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> $GITHUB_ENV
 
           INSTANCE_ID=$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=*bastion*,*Bastion*" "Name=instance-state-name,Values=running" \
@@ -57,8 +57,8 @@ jobs:
             exit 1
           fi
 
-          echo "Found active Bastion: $INSTANCE_ID"
-          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          echo "🔵 Found active Bastion: $INSTANCE_ID"
+          echo "🔵 INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
 
       #  Phase 1: EC2 Instance Connect
       - name: Resolve Bastion AZ and Public IP
@@ -71,9 +71,9 @@ jobs:
             --instance-ids "${INSTANCE_ID}" \
             --query "Reservations[0].Instances[0].PublicIpAddress" \
             --output text)
-          echo "AZ=${AZ}"                 >> $GITHUB_ENV
-          echo "BASTION_IP=${BASTION_IP}" >> $GITHUB_ENV
-          echo "Bastion: ${BASTION_IP} (${AZ})"
+          echo "🔵 AZ=${AZ}"                 >> $GITHUB_ENV
+          echo "🔵 BASTION_IP=${BASTION_IP}" >> $GITHUB_ENV
+          echo "🔵 Bastion: ${BASTION_IP} (${AZ})"
 
       - name: Start SSM Agent via EC2 Instance Connect
         run: |
@@ -98,7 +98,7 @@ jobs:
             sudo snap start amazon-ssm-agent
             sudo snap services amazon-ssm-agent
           "
-          echo "SSM Agent started"
+          echo "✅ SSM Agent started"
 
       - name: Wait for SSM Agent to come Online
         run: |
@@ -108,34 +108,36 @@ jobs:
               --query "InstanceInformationList[0].PingStatus" \
               --output text 2>/dev/null || echo "None")
             if [ "${STATUS}" = "Online" ]; then
-              echo "SSM Agent is Online ✅ (attempt ${i})"
+              echo "✅ SSM Agent is Online (attempt ${i})"
               break
             fi
-            echo "Attempt ${i}/18: status=${STATUS}, waiting 10s..."
+            echo "🔵 Attempt ${i}/18: status=${STATUS}, waiting 10s..."
             sleep 10
           done
           if [ "${STATUS}" != "Online" ]; then
-            echo "ERROR: SSM Agent did not come Online"
+            echo "❌ ERROR: SSM Agent did not come Online"
             exit 1
           fi
 
-      # Phase 2: Tất cả tasks qua SSM
+      # Phase 2: Install K8s add-ons
 
       - name: "Upload Helm values to Bastion via SSM"
         run: |
           NGINX_B64=$(base64 -w 0 modules/ingress-nginx/values.yaml)
           ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
-          MLFLOW_B64=$(base64 -w 0 modules/mlflow/values.yaml)
+          PROMETHEUS_B64=$(base64 -w 0 modules/monitoring/prometheus/values.yaml)
+          GRAFANA_B64=$(base64 -w 0 modules/monitoring/grafana/values.yaml)
 
           CMD_ID=$(aws ssm send-command \
             --instance-ids "${INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
             --timeout-seconds 30 \
             --parameters "commands=[
-              \"mkdir -p /tmp/helm-values/ingress-nginx /tmp/helm-values/argocd /tmp/helm-values/mlflow\",
+              \"mkdir -p /tmp/helm-values/ingress-nginx /tmp/helm-values/argocd /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana\",
               \"echo '${NGINX_B64}' | base64 -d > /tmp/helm-values/ingress-nginx/values.yaml\",
               \"echo '${ARGOCD_B64}' | base64 -d > /tmp/helm-values/argocd/values.yaml\",
-              \"echo '${MLFLOW_B64}' | base64 -d > /tmp/helm-values/mlflow/values.yaml\",
+              \"echo '${PROMETHEUS_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml\",
+              \"echo '${GRAFANA_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml\",
               \"echo Values uploaded OK\"
             ]" \
             --query "Command.CommandId" --output text)
@@ -195,7 +197,7 @@ jobs:
             ]" \
             --query "Command.CommandId" --output text)
 
-          echo "Waiting for LBC install (up to 10min)..."
+          echo "🔵 Waiting for LBC install (up to 10min)..."
           aws ssm wait command-executed \
             --command-id "${CMD_ID}" \
             --instance-id "${INSTANCE_ID}" || FAILED=1
@@ -241,7 +243,7 @@ jobs:
       - name: "2/3 Install ingress-nginx"
         id: install_nginx
         run: |
-          # Helper: poll SSM command đến khi xong hoặc timeout
+          # Helper: poll SSM command until done or timeout
           wait_ssm() {
             local cmd_id=$1 instance=$2 max_wait=$3   # max_wait tính bằng giây
             local elapsed=0 interval=15
@@ -257,7 +259,7 @@ jobs:
               sleep $interval
               elapsed=$((elapsed + interval))
             done
-            echo "ERROR: Timed out after ${max_wait}s waiting for SSM command"
+            echo ❌ ERROR: Timed out after ${max_wait}s waiting for SSM command"
             return 1
           }
 
@@ -277,7 +279,7 @@ jobs:
             ]" \
             --query "Command.CommandId" --output text)
 
-          echo "Waiting for ingress-nginx install (up to 15min)..."
+          echo "🔵 Waiting for ingress-nginx install (up to 15min)..."
           wait_ssm "${CMD_ID}" "${INSTANCE_ID}" 900 || FAILED=1
 
           echo "=== STDOUT ==="
@@ -311,7 +313,7 @@ jobs:
             ]" \
             --query "Command.CommandId" --output text)
 
-          echo "Waiting for ArgoCD install (up to 15min)..."
+          echo "🔵 Waiting for ArgoCD install (up to 15min)..."
           aws ssm wait command-executed \
             --command-id "${CMD_ID}" \
             --instance-id "${INSTANCE_ID}" || FAILED=1
@@ -329,7 +331,7 @@ jobs:
           [ "${FAILED:-0}" = "1" ] && exit 1 || true
 
       # 4. NVIDIA Device Plugin
-      - name: "4/4 Install NVIDIA Device Plugin"
+      - name: "4/5 Install NVIDIA Device Plugin"
         id: install_nvidia
         run: |
           CMD_ID=$(aws ssm send-command \
@@ -345,50 +347,40 @@ jobs:
             --query "Command.CommandId" --output text)
 
           aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || FAILED=1
+            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" || FAILED=1
 
           [ "${FAILED:-0}" = "1" ] && exit 1 || true
 
-      # 5. MLflow
-      - name: "5/5 Install MLflow via Helm"
-        id: install_mlflow
+      # 5. Monitoring (Prometheus & Grafana)
+      - name: "5/5 Install Monitoring (Prometheus & Grafana)"
+        id: install_monitoring
         run: |
-          # Lấy IRSA Role ARN và RDS host từ AWS (runner có quyền AWS)
-          IRSA_ROLE_ARN=$(aws iam get-role \
-            --role-name "mlops-mlflow-irsa-dev" \
-            --query "Role.Arn" --output text)
-
-          DB_HOST=$(aws rds describe-db-instances \
-            --db-instance-identifier "mlops-mlflow-rds-postgresql" \
-            --query "DBInstances[0].Endpoint.Address" --output text)
-
-          S3_BUCKET="kltn-mlops-mlflow-artifacts-dev"
-
-          echo "IRSA: ${IRSA_ROLE_ARN}"
-          echo "DB Host: ${DB_HOST}"
-
           CMD_ID=$(aws ssm send-command \
             --instance-ids "${INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
-            --timeout-seconds 720 \
+            --timeout-seconds 900 \
             --parameters "commands=[
               \"export HOME=/root\",
               \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              \"echo '--- Step 1: Create namespace mlops'\",
-              \"kubectl create namespace mlops --dry-run=client -o yaml | kubectl apply -f -\",
-              \"echo '--- Step 2: Render values.yaml'\",
-              \"sed -e 's|__IRSA_ROLE_ARN__|${IRSA_ROLE_ARN}|g' -e 's|__S3_BUCKET__|${S3_BUCKET}|g' -e 's|__AWS_REGION__|${AWS_REGION}|g' -e 's|__DB_HOST__|${DB_HOST}|g' -e 's|__DB_PASS__|${{ secrets.MLFLOW_DB_PASSWORD }}|g' /tmp/helm-values/mlflow/values.yaml > /tmp/mlflow-rendered.yaml\",
-              \"echo '--- Step 3: Helm install MLflow'\",
-              \"helm repo add community-charts https://community-charts.github.io/helm-charts 2>/dev/null || true\",
-              \"helm repo update community-charts\",
-              \"helm upgrade --install mlflow-server community-charts/mlflow --namespace mlops --version '0.7.19' --values /tmp/mlflow-rendered.yaml --wait --timeout 10m\",
-              \"kubectl rollout status deployment/mlflow-server -n mlops --timeout=300s\",
-              \"echo MLflow installed OK\"
+              
+              \"🔵 echo '--- Repo Setup ---'\",
+              \"helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true\",
+              \"helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true\",
+              \"helm repo update\",
+
+              \"🔵 echo '--- Install Prometheus ---'\",
+              \"kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -\",
+              \"helm upgrade --install prometheus prometheus-community/kube-prometheus-stack --namespace prometheus --version '56.6.2' --values /tmp/helm-values/monitoring/prometheus/values.yaml --wait --timeout 10m\",
+
+              \"🔵 echo '--- Install Grafana ---'\",
+              \"kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -\",
+              \"helm upgrade --install grafana grafana/grafana --namespace grafana --version '7.3.0' --values /tmp/helm-values/monitoring/grafana/values.yaml --set adminPassword='${{ secrets.GRAFANA_ADMIN_PASSWORD }}' --wait --timeout 5m\",
+
+              \"✅ echo Monitoring Stack installed OK\"
             ]" \
             --query "Command.CommandId" --output text)
 
-          echo "Waiting for MLflow install (up to 12min)..."
+          echo "🔵 Waiting for Monitoring install (up to 15min)..."
           aws ssm wait command-executed \
             --command-id "${CMD_ID}" \
             --instance-id "${INSTANCE_ID}" || FAILED=1
@@ -404,6 +396,7 @@ jobs:
             --query "StandardErrorContent" --output text
 
           [ "${FAILED:-0}" = "1" ] && exit 1 || true
+
           # Verify
       - name: Verify all add-ons are healthy
         id: verify
@@ -419,9 +412,8 @@ jobs:
               \"kubectl get pods -n ingress-nginx\",
               \"kubectl get svc ingress-nginx-controller -n ingress-nginx\",
               \"kubectl get pods -n argocd\",
-              \"echo '--- MLflow ---'\",
-              \"kubectl get pods -n mlops\",
-              \"kubectl get svc -n mlops\"
+              \"kubectl get pods -n prometheus\",
+              \"kubectl get pods -n grafana\"
             ]" \
             --query "Command.CommandId" --output text)
 
@@ -444,7 +436,7 @@ jobs:
           | AWS Load Balancer Controller | `${{ steps.install_lbc.outcome }}` |
           | ingress-nginx                | `${{ steps.install_nginx.outcome }}` |
           | ArgoCD                       | `${{ steps.install_argocd.outcome }}` |
-          | MLflow                       | `${{ steps.install_mlflow.outcome }}` |
+          | Monitoring (Prom/Grafana)    | `${{ steps.install_monitoring.outcome }}` |
 
           **Bastion:** `${{ env.INSTANCE_ID }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
           EOF
