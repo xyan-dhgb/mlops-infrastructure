@@ -16,6 +16,7 @@ AWS_DEFAULT_REGION='${AWS_REGION}'"
 echo "📦 Encoding Helm values files..."
 NGINX_B64=$(base64 -w 0 modules/ingress-nginx/values.yaml)
 ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
+MLFLOW_B64=$(base64 -w 0 modules/mlflow/values.yaml)
 PROM_B64=$(base64  -w 0 modules/monitoring/prometheus/prometheus-values.yaml)
 GRAFANA_B64=$(base64 -w 0 modules/monitoring/grafana/grafana-values.yaml)
 
@@ -23,6 +24,7 @@ ssm_run 30 "Upload Helm values" \
   "mkdir -p /tmp/helm-values/ingress-nginx /tmp/helm-values/argocd /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana" \
   "echo '${NGINX_B64}'   | base64 -d > /tmp/helm-values/ingress-nginx/values.yaml" \
   "echo '${ARGOCD_B64}'  | base64 -d > /tmp/helm-values/argocd/values.yaml" \
+  "echo '${MLFLOW_B64}'  | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
   "echo '${PROM_B64}'    | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
   "echo '${GRAFANA_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml" \
   "echo Values uploaded OK"
@@ -86,13 +88,53 @@ ssm_run 900 "Install ArgoCD" \
   "kubectl rollout status deployment/argocd-server -n argocd --timeout=300s" \
   "echo '✅ ArgoCD installed OK'"
 
-# 5. Install NVIDIA Device Plugin
+# Install NVIDIA Device Plugin
 ssm_run 120 "Install NVIDIA Device Plugin" \
   "${AWS_ENV_EXPORT}" \
   "kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/nvidia-device-plugin.yml" \
   "echo '✅ NVIDIA Device Plugin applied'"
 
-# 6. Install Monitoring (Prometheus + Grafana)
+# Take MLflow config from AWS on runner (with IAM permissions)
+echo "🔍 Fetching MLflow config from AWS..."
+IRSA_ROLE_ARN=$(aws iam get-role \
+  --role-name "${CLUSTER_NAME}-mlflow-irsa" \
+  --query "Role.Arn" --output text)
+
+DB_HOST=$(aws rds describe-db-instances \
+  --db-instance-identifier "mlops-mlflow-rds-postgresql" \
+  --query "DBInstances[0].Endpoint.Address" --output text)
+
+S3_BUCKET="mlops-mlflow-artifacts-dev"
+echo "  IRSA: ${IRSA_ROLE_ARN}"
+echo "  DB:   ${DB_HOST}"
+echo "  S3:   ${S3_BUCKET}"
+
+# Install MLflow
+ssm_run 720 "Install MLflow" \
+  "${AWS_ENV_EXPORT}" \
+  "kubectl create namespace mlflow --dry-run=client -o yaml | kubectl apply -f -" \
+  "kubectl create secret generic mlflow-secret -n mlflow \
+    --from-literal=db-host='${DB_HOST}' \
+    --from-literal=db-port='5432' \
+    --from-literal=db-name='mlflow' \
+    --from-literal=db-user='mlflow' \
+    --from-literal=db-pass='${MLFLOW_DB_PASSWORD}' \
+    --dry-run=client -o yaml | kubectl apply -f -" \
+  "sed -e 's|__IRSA_ROLE_ARN__|${IRSA_ROLE_ARN}|g' \
+       -e 's|__S3_BUCKET__|${S3_BUCKET}|g' \
+       -e 's|__AWS_REGION__|${AWS_REGION}|g' \
+       /tmp/helm-values/mlflow/values.yaml > /tmp/mlflow-rendered.yaml" \
+  "helm repo add community-charts https://community-charts.github.io/helm-charts 2>/dev/null || true" \
+  "helm repo update community-charts" \
+  "helm upgrade --install mlflow-server community-charts/mlflow \
+    --namespace mlflow \
+    --version '0.7.19' \
+    --values /tmp/mlflow-rendered.yaml \
+    --wait --timeout 10m" \
+  "kubectl rollout status deployment/mlflow-server -n mlflow --timeout=300s" \
+  "echo '✅ MLflow installed OK'"
+
+# Install Monitoring (Prometheus + Grafana)
 ssm_run 900 "Install Monitoring" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true" \
