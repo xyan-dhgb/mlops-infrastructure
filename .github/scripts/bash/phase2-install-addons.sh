@@ -97,7 +97,7 @@ ssm_run 120 "Install NVIDIA Device Plugin" \
 # Take MLflow config from AWS on runner (with IAM permissions)
 echo "🔍 Fetching MLflow config from AWS..."
 IRSA_ROLE_ARN=$(aws iam get-role \
-  --role-name "${CLUSTER_NAME}-mlflow-irsa" \
+  --role-name "mlops-mlflow-irsa-dev" \
   --query "Role.Arn" --output text)
 
 DB_HOST=$(aws rds describe-db-instances \
