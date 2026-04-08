@@ -12,6 +12,7 @@ apt-get update -y
 # 2. Install basic dependencies
 apt-get install -y \
   unzip \
+  wget \
   curl \
   jq \
   gpg \
@@ -43,10 +44,26 @@ kubectl version --client
 # 5. Install Helm
 echo "--- Installing Helm ---"
 
-curl -fsSL --retry 3 --http1.1 https://baltocdn.com/helm/signing.asc | gpg --dearmor -o /usr/share/keyrings/helm.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | tee /etc/apt/sources.list.d/helm-stable-debian.list
-apt-get update
-apt-get install -y helm
+HELM_VERSION=$(curl -fsSL --http1.1 https://api.github.com/repos/helm/helm/releases/latest \
+  | jq -r '.tag_name')
+
+echo "Installing Helm ${HELM_VERSION}..."
+
+curl -fsSL --http1.1 \
+  "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+  -o /tmp/helm.tar.gz
+
+# Verify file không rỗng
+if [ ! -s /tmp/helm.tar.gz ]; then
+  echo "ERROR: helm.tar.gz download failed"
+  exit 1
+fi
+
+tar -zxf /tmp/helm.tar.gz -C /tmp
+mv /tmp/linux-amd64/helm /usr/local/bin/helm
+rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
+
+helm version
 
 echo "=== Bootstrap finished at $(date) ==="
 echo "NOTE: To configure kubectl after SSH-ing in:"

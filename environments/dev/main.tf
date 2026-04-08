@@ -30,6 +30,19 @@ module "eks" {
   node_desired_size               = var.node_desired_size
   node_min_size                   = var.node_min_size
   node_max_size                   = var.node_max_size
+
+  # ML Pipeline Node Group
+  ml_node_instance_types = var.ml_node_instance_types
+  ml_node_capacity_type  = var.ml_node_capacity_type
+  ml_node_desired_size   = var.ml_node_desired_size
+  ml_node_min_size       = var.ml_node_min_size
+  ml_node_max_size       = var.ml_node_max_size
+}
+
+# Attach Public Key in local machine to AWS 
+resource "aws_key_pair" "bastion_key" {
+  key_name   = var.bastion_ssh_key_name
+  public_key = var.BASTION_PUBLIC_KEY
 }
 
 module "bastion" {
@@ -37,7 +50,7 @@ module "bastion" {
 
   vpc_id           = module.vpc.vpc_id
   subnet_ids       = module.vpc.public_subnet_ids
-  ssh_key_name     = var.bastion_ssh_key_name
+  ssh_key_name     = aws_key_pair.bastion_key.key_name
   allowed_ssh_cidr = var.bastion_allowed_ssh_cidr
 }
 
@@ -64,5 +77,33 @@ module "ecr" {
     Project    = var.project_name
     Team       = "mlops"
     CostCenter = "ml-infra"
+  }
+}
+
+module "route53" {
+  source = "../../modules/route53"
+
+  domain_name = var.domain_name
+}
+
+
+# EKS Access Entry for Bastion Host
+data "aws_iam_role" "bastion_role" {
+  name       = "KLTN-Bastion-Host-ssm-role"
+  depends_on = [module.bastion]
+}
+
+resource "aws_eks_access_entry" "bastion_admin" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = data.aws_iam_role.bastion_role.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "bastion_admin_policy" {
+  cluster_name  = module.eks.cluster_name
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  principal_arn = data.aws_iam_role.bastion_role.arn
+  access_scope {
+    type = "cluster"
   }
 }
