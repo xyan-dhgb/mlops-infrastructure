@@ -49,7 +49,7 @@ echo "🚀 Starting SSM Agent on bastion via SSH..."
 ssh -i /tmp/bastion-host \
     -o StrictHostKeyChecking=no \
     -o ConnectTimeout=10 \
-    ubuntu@"${BASTION_IP}.ap-southeast-1.compute.amazonaws.com" \
+    ubuntu@"ec2-${BASTION_IP//./-}.ap-southeast-1.compute.amazonaws.com" \
     'bash -s' <<'REMOTE'
 if ! sudo snap services amazon-ssm-agent | grep -q active; then
   echo "Installing SSM Agent via snap..."
