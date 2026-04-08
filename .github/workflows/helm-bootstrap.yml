@@ -48,7 +48,7 @@ jobs:
         run: |
           echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> "$GITHUB_ENV"
           chmod +x .github/scripts/bash/phase1-start-ssm-agent.sh
-          bash scripts/bash/phase1-start-ssm-agent.sh
+          bash .github/scripts/bash/phase1-start-ssm-agent.sh
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
 
@@ -57,7 +57,7 @@ jobs:
         id: install_addons
         run: |
           chmod +x .github/scripts/bash/ssm-run.sh .github/scripts/bash/phase2-install-addons.sh
-          bash scripts/bash/phase2-install-addons.sh
+          bash .github/scripts/bash/phase2-install-addons.sh
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
