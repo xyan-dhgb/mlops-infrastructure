@@ -47,7 +47,7 @@ jobs:
       - name: "Phase 1: Start SSM Agent on Bastion"
         run: |
           echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> "$GITHUB_ENV"
-          chmod +x scripts/bash/phase1-start-ssm-agent.sh
+          chmod +x .github/scripts/bash/phase1-start-ssm-agent.sh
           bash scripts/bash/phase1-start-ssm-agent.sh
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -56,7 +56,7 @@ jobs:
       - name: "Phase 2: Install K8s Add-ons"
         id: install_addons
         run: |
-          chmod +x scripts/bash/ssm-run.sh scripts/bash/phase2-install-addons.sh
+          chmod +x .github/scripts/bash/ssm-run.sh .github/scripts/bash/phase2-install-addons.sh
           bash scripts/bash/phase2-install-addons.sh
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
