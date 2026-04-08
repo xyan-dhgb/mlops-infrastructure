@@ -41,7 +41,7 @@ echo "🔵 AZ=${AZ}, IP=${BASTION_IP}"
 
 # Write private key from GitHub Secret to temp file
 echo "🔑 Writing bastion private key from secret..."
-echo "${BASTION_PUBLIC_KEY}" > /tmp/bastion-host
+printf '%s\n' "${BASTION_PUBLIC_KEY}" > /tmp/bastion-host
 chmod 400 /tmp/bastion-host
 
 # SSH into bastion → Install and start SSM Agent
