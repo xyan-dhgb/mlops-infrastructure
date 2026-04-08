@@ -1,7 +1,7 @@
 name: "Helm Bootstrap - K8s Add-ons via SSM"
 # Flow:
-#   Phase 1 — EC2 Instance Connect (1 time, <30s): Install and start SSM Agent
-#   Phase 2 — AWS SSM (no expire): helm install LBC, ingress-nginx, ArgoCD
+#  Phase 1 - EC2 Instance Connect (1 time, <30s): Install and start SSM Agent
+#  Phase 2 - AWS SSM (no expire): helm install LBC, ingress-nginx, ArgoCD, NVIDIA, Monitoring
 
 on:
   workflow_dispatch:
@@ -43,388 +43,30 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Find Bastion Instance ID and Set Vars
+      # Phase 1: EC2 Instance Connect → Start SSM Agent
+      - name: "Phase 1: Start SSM Agent on Bastion"
         run: |
-          echo "📣 CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> $GITHUB_ENV
+          echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> "$GITHUB_ENV"
+          chmod +x scripts/bash/phase1-start-ssm-agent.sh
+          bash scripts/bash/phase1-start-ssm-agent.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
 
-          INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=*bastion*,*Bastion*" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text)
-
-          if [ "$INSTANCE_ID" == "None" ] || [ -z "$INSTANCE_ID" ]; then
-            echo "ERROR: Failed to find a running bastion instance!"
-            exit 1
-          fi
-
-          echo "🔵 Found active Bastion: $INSTANCE_ID"
-          echo "🔵 INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-
-      #  Phase 1: EC2 Instance Connect
-      - name: Resolve Bastion AZ and Public IP
+      # Phase 2: Helm installs via SSM
+      - name: "Phase 2: Install K8s Add-ons"
+        id: install_addons
         run: |
-          AZ=$(aws ec2 describe-instances \
-            --instance-ids "${INSTANCE_ID}" \
-            --query "Reservations[0].Instances[0].Placement.AvailabilityZone" \
-            --output text)
-          BASTION_IP=$(aws ec2 describe-instances \
-            --instance-ids "${INSTANCE_ID}" \
-            --query "Reservations[0].Instances[0].PublicIpAddress" \
-            --output text)
-          echo "🔵 AZ=${AZ}"                 >> $GITHUB_ENV
-          echo "🔵 BASTION_IP=${BASTION_IP}" >> $GITHUB_ENV
-          echo "🔵 Bastion: ${BASTION_IP} (${AZ})"
+          chmod +x scripts/bash/ssm-run.sh scripts/bash/phase2-install-addons.sh
+          bash scripts/bash/phase2-install-addons.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          INSTANCE_ID: ${{ env.INSTANCE_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
 
-      - name: Start SSM Agent via EC2 Instance Connect
-        run: |
-          ssh-keygen -t ed25519 -f /tmp/bastion_key -N ""
-          aws ec2-instance-connect send-ssh-public-key \
-            --instance-id "${INSTANCE_ID}" \
-            --availability-zone "${AZ}" \
-            --instance-os-user ubuntu \
-            --ssh-public-key file:///tmp/bastion_key.pub
-          chmod 600 /tmp/bastion_key
-
-          ssh -i /tmp/bastion_key \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
-              ubuntu@${BASTION_IP} "
-            if ! sudo snap services amazon-ssm-agent | grep -q 'active'; then
-              echo 'Installing SSM Agent via snap...'
-              sudo snap install amazon-ssm-agent --classic
-            else
-              echo 'SSM Agent snap already installed'
-            fi
-            sudo snap start amazon-ssm-agent
-            sudo snap services amazon-ssm-agent
-          "
-          echo "✅ SSM Agent started"
-
-      - name: Wait for SSM Agent to come Online
-        run: |
-          for i in $(seq 1 18); do
-            STATUS=$(aws ssm describe-instance-information \
-              --filters "Key=InstanceIds,Values=${INSTANCE_ID}" \
-              --query "InstanceInformationList[0].PingStatus" \
-              --output text 2>/dev/null || echo "None")
-            if [ "${STATUS}" = "Online" ]; then
-              echo "✅ SSM Agent is Online (attempt ${i})"
-              break
-            fi
-            echo "🔵 Attempt ${i}/18: status=${STATUS}, waiting 10s..."
-            sleep 10
-          done
-          if [ "${STATUS}" != "Online" ]; then
-            echo "❌ ERROR: SSM Agent did not come Online"
-            exit 1
-          fi
-
-      # Phase 2: Install K8s add-ons
-
-      - name: "Upload Helm values to Bastion via SSM"
-        run: |
-          NGINX_B64=$(base64 -w 0 modules/ingress-nginx/values.yaml)
-          ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
-          PROMETHEUS_B64=$(base64 -w 0 modules/monitoring/prometheus/values.yaml)
-          GRAFANA_B64=$(base64 -w 0 modules/monitoring/grafana/values.yaml)
-
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 30 \
-            --parameters "commands=[
-              \"mkdir -p /tmp/helm-values/ingress-nginx /tmp/helm-values/argocd /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana\",
-              \"echo '${NGINX_B64}' | base64 -d > /tmp/helm-values/ingress-nginx/values.yaml\",
-              \"echo '${ARGOCD_B64}' | base64 -d > /tmp/helm-values/argocd/values.yaml\",
-              \"echo '${PROMETHEUS_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml\",
-              \"echo '${GRAFANA_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml\",
-              \"echo Values uploaded OK\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || FAILED=1
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "[StandardOutputContent, StandardErrorContent]" --output text
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
-
-      - name: "Configure kubectl on Bastion"
-        run: |
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 60 \
-            --parameters "commands=[
-              \"export HOME=/root\",
-              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              \"aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}\",
-              \"kubectl cluster-info\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || FAILED=1
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "[StandardOutputContent, StandardErrorContent]" --output text
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
-
-      # 1. AWS Load Balancer Controller
-      - name: "1/3 Install AWS Load Balancer Controller"
-        id: install_lbc
-        run: |
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 600 \
-            --parameters "commands=[
-              \"export HOME=/root\",
-              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              \"LBC_ROLE_ARN=\$(aws iam get-role --role-name '${CLUSTER_NAME}-aws-load-balancer-controller' --query 'Role.Arn' --output text)\",
-              \"VPC_ID=\$(aws eks describe-cluster --name '${CLUSTER_NAME}' --query 'cluster.resourcesVpcConfig.vpcId' --output text)\",
-              \"helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true\",
-              \"helm repo update eks\",
-              \"helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller --namespace kube-system --set clusterName='${CLUSTER_NAME}' --set serviceAccount.create=true --set serviceAccount.name=aws-load-balancer-controller --set \\\"serviceAccount.annotations.eks\\\\.amazonaws\\\\.com/role-arn=\${LBC_ROLE_ARN}\\\" --set region='${AWS_REGION}' --set vpcId=\${VPC_ID} --wait --timeout 5m\",
-              \"kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=120s\",
-              \"echo LBC installed OK\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          echo "🔵 Waiting for LBC install (up to 10min)..."
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || FAILED=1
-
-          echo "=== STDOUT ==="
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardOutputContent" --output text
-
-          echo "=== STDERR ==="
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardErrorContent" --output text
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
-
-      - name: "Wait for LBC webhook to be ready"
-        run: |
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 120 \
-            --parameters "commands=[
-              \"export HOME=/root\",
-              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              \"sleep 30\",
-              \"kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller -n kube-system --timeout=60s\",
-              \"echo LBC webhook ready\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || FAILED=1
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "[StandardOutputContent, StandardErrorContent]" --output text
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
-
-      # 2. ingress-nginx
-      - name: "2/3 Install ingress-nginx"
-        id: install_nginx
-        run: |
-          # Helper: poll SSM command until done or timeout
-          wait_ssm() {
-            local cmd_id=$1 instance=$2 max_wait=$3   # max_wait tính bằng giây
-            local elapsed=0 interval=15
-            while [ $elapsed -lt $max_wait ]; do
-              STATUS=$(aws ssm get-command-invocation \
-                --command-id "$cmd_id" --instance-id "$instance" \
-                --query "Status" --output text 2>/dev/null || echo "Pending")
-              echo "  [${elapsed}s] Status: ${STATUS}"
-              case "$STATUS" in
-                Success) return 0 ;;
-                Failed|Cancelled|TimedOut|Undeliverable) return 1 ;;
-              esac
-              sleep $interval
-              elapsed=$((elapsed + interval))
-            done
-            echo ❌ ERROR: Timed out after ${max_wait}s waiting for SSM command"
-            return 1
-          }
-
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 900 \
-            --parameters "commands=[
-              \"export HOME=/root\",
-              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              \"sed 's/\\\${replica_count}/2/g' /tmp/helm-values/ingress-nginx/values.yaml > /tmp/ingress-nginx-rendered.yaml\",
-              \"helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>/dev/null || true\",
-              \"helm repo update ingress-nginx\",
-              \"helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace --version '4.14.3' --values /tmp/ingress-nginx-rendered.yaml --wait --timeout 10m\",
-              \"kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=300s\",
-              \"echo ingress-nginx installed OK\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          echo "🔵 Waiting for ingress-nginx install (up to 15min)..."
-          wait_ssm "${CMD_ID}" "${INSTANCE_ID}" 900 || FAILED=1
-
-          echo "=== STDOUT ==="
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardOutputContent" --output text
-
-          echo "=== STDERR ==="
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardErrorContent" --output text
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
-
-      # 3. ArgoCD
-      - name: "3/3 Install ArgoCD"
-        id: install_argocd
-        run: |
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 900 \
-            --parameters "commands=[
-              \"export HOME=/root\",
-              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              \"helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true\",
-              \"helm repo update argo\",
-              \"helm upgrade --install argocd argo/argo-cd --namespace argocd --create-namespace --version '7.5.2' --values /tmp/helm-values/argocd/values.yaml --wait --timeout 10m\",
-              \"kubectl rollout status deployment/argocd-server -n argocd --timeout=300s\",
-              \"echo ArgoCD installed OK\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          echo "🔵 Waiting for ArgoCD install (up to 15min)..."
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || FAILED=1
-
-          echo "=== STDOUT ==="
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardOutputContent" --output text
-
-          echo "=== STDERR ==="
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardErrorContent" --output text
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
-
-      # 4. NVIDIA Device Plugin
-      - name: "4/5 Install NVIDIA Device Plugin"
-        id: install_nvidia
-        run: |
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 120 \
-            --parameters "commands=[
-              \"export HOME=/root\",
-              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              \"kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/nvidia-device-plugin.yml\",
-              \"echo NVIDIA Device Plugin applied\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" || FAILED=1
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
-
-      # 5. Monitoring (Prometheus & Grafana)
-      - name: "5/5 Install Monitoring (Prometheus & Grafana)"
-        id: install_monitoring
-        run: |
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 900 \
-            --parameters "commands=[
-              \"export HOME=/root\",
-              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              
-              \"🔵 echo '--- Repo Setup ---'\",
-              \"helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true\",
-              \"helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true\",
-              \"helm repo update\",
-
-              \"🔵 echo '--- Install Prometheus ---'\",
-              \"kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -\",
-              \"helm upgrade --install prometheus prometheus-community/kube-prometheus-stack --namespace prometheus --version '56.6.2' --values /tmp/helm-values/monitoring/prometheus/values.yaml --wait --timeout 10m\",
-
-              \"🔵 echo '--- Install Grafana ---'\",
-              \"kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -\",
-              \"helm upgrade --install grafana grafana/grafana --namespace grafana --version '7.3.0' --values /tmp/helm-values/monitoring/grafana/values.yaml --set adminPassword='${{ secrets.GRAFANA_ADMIN_PASSWORD }}' --wait --timeout 5m\",
-
-              \"✅ echo Monitoring Stack installed OK\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          echo "🔵 Waiting for Monitoring install (up to 15min)..."
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || FAILED=1
-
-          echo "=== STDOUT ==="
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardOutputContent" --output text
-
-          echo "=== STDERR ==="
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardErrorContent" --output text
-
-          [ "${FAILED:-0}" = "1" ] && exit 1 || true
-
-          # Verify
-      - name: Verify all add-ons are healthy
-        id: verify
-        run: |
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --timeout-seconds 60 \
-            --parameters "commands=[
-              \"export HOME=/root\",
-              \"export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}' AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}' AWS_DEFAULT_REGION='${AWS_REGION}'\",
-              \"kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller\",
-              \"kubectl get pods -n ingress-nginx\",
-              \"kubectl get svc ingress-nginx-controller -n ingress-nginx\",
-              \"kubectl get pods -n argocd\",
-              \"kubectl get pods -n prometheus\",
-              \"kubectl get pods -n grafana\"
-            ]" \
-            --query "Command.CommandId" --output text)
-
-          aws ssm wait command-executed \
-            --command-id "${CMD_ID}" \
-            --instance-id "${INSTANCE_ID}" || true
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" \
-            --query "StandardOutputContent" --output text
-
+      # Summary
       - name: Post bootstrap summary
         if: always()
         run: |
@@ -433,13 +75,15 @@ jobs:
 
           | Add-on                       | Status |
           |------------------------------|--------|
-          | AWS Load Balancer Controller | `${{ steps.install_lbc.outcome }}` |
-          | ingress-nginx                | `${{ steps.install_nginx.outcome }}` |
-          | ArgoCD                       | `${{ steps.install_argocd.outcome }}` |
-          | Monitoring (Prom/Grafana)    | `${{ steps.install_monitoring.outcome }}` |
+          | AWS Load Balancer Controller | `${{ steps.install_addons.outcome }}` |
+          | ingress-nginx                | `${{ steps.install_addons.outcome }}` |
+          | ArgoCD                       | `${{ steps.install_addons.outcome }}` |
+          | NVIDIA Device Plugin         | `${{ steps.install_addons.outcome }}` |
+          | Monitoring (Prom/Grafana)    | `${{ steps.install_addons.outcome }}` |
 
           **Bastion:** `${{ env.INSTANCE_ID }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
           EOF
 
-# Get ArgoCD secret for authentication:
-# kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+# Tip — Get ArgoCD initial admin password:
+# kubectl -n argocd get secret argocd-initial-admin-secret \
+#   -o jsonpath='{.data.password}' | base64 -d
