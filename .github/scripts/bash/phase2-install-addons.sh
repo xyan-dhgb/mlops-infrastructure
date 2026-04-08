@@ -50,14 +50,14 @@ ssm_run 600 "Install LBC" \
     --set vpcId=\${VPC_ID} \
     --wait --timeout 5m" \
   "kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=120s" \
-  "echo✅ LBC installed OK"
+  "echo '✅ LBC installed OK'"
 
 # Wait for LBC webhook
 ssm_run 120 "Wait for LBC webhook" \
   "${AWS_ENV_EXPORT}" \
   "sleep 30" \
   "kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller -n kube-system --timeout=60s" \
-  "echo ✅ LBC webhook ready"
+  "echo '✅ LBC webhook ready'"
 
 # Install ingress-nginx
 ssm_run 900 "Install ingress-nginx" \
@@ -71,7 +71,7 @@ ssm_run 900 "Install ingress-nginx" \
     --values /tmp/ingress-nginx-rendered.yaml \
     --wait --timeout 10m" \
   "kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=300s" \
-  "echo ✅ ingress-nginx installed OK"
+  "echo '✅ ingress-nginx installed OK'"
 
 # Install ArgoCD
 ssm_run 900 "Install ArgoCD" \
@@ -84,13 +84,13 @@ ssm_run 900 "Install ArgoCD" \
     --values /tmp/helm-values/argocd/values.yaml \
     --wait --timeout 10m" \
   "kubectl rollout status deployment/argocd-server -n argocd --timeout=300s" \
-  "echo ✅ ArgoCD installed OK"
+  "echo '✅ ArgoCD installed OK'"
 
 # 5. Install NVIDIA Device Plugin
 ssm_run 120 "Install NVIDIA Device Plugin" \
   "${AWS_ENV_EXPORT}" \
   "kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/nvidia-device-plugin.yml" \
-  "echo ✅ NVIDIA Device Plugin applied"
+  "echo '✅ NVIDIA Device Plugin applied'"
 
 # 6. Install Monitoring (Prometheus + Grafana)
 ssm_run 900 "Install Monitoring" \
@@ -111,7 +111,7 @@ ssm_run 900 "Install Monitoring" \
     --values /tmp/helm-values/monitoring/grafana/values.yaml \
     --set adminPassword='${GRAFANA_ADMIN_PASSWORD}' \
     --wait --timeout 5m" \
-  "echo Monitoring Stack installed OK"
+  "echo 'Monitoring Stack installed OK'"
 
 # Verify all add-ons
 ssm_run 60 "Verify add-ons" \
