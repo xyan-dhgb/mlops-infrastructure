@@ -41,15 +41,15 @@ echo "🔵 AZ=${AZ}, IP=${BASTION_IP}"
 
 # Write private key from GitHub Secret to temp file
 echo "🔑 Writing bastion private key from secret..."
-echo "${BASTION_PUBLIC_KEY}" > /tmp/bastion_key
-chmod 600 /tmp/bastion_key
+echo "${BASTION_PUBLIC_KEY}" > /tmp/bastion-host
+chmod 400 /tmp/bastion-host
 
 # SSH into bastion → Install and start SSM Agent
 echo "🚀 Starting SSM Agent on bastion via SSH..."
-ssh -i /tmp/bastion_key \
+ssh -i /tmp/bastion-host \
     -o StrictHostKeyChecking=no \
     -o ConnectTimeout=10 \
-    ubuntu@"${BASTION_IP}" \
+    ubuntu@"${BASTION_IP}.ap-southeast-1.compute.amazonaws.com" \
     'bash -s' <<'REMOTE'
 if ! sudo snap services amazon-ssm-agent | grep -q active; then
   echo "Installing SSM Agent via snap..."
