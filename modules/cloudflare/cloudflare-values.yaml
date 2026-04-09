@@ -1,0 +1,59 @@
+# Each replica remains 4 connections to cloudflare edge
+# topologySpreadConstraints spreads across 2 AZ (ap-southeast-1a, ap-southeast-1b)
+replicaCount: 2
+
+image:
+  repository: cloudflare/cloudflared
+  tag: latest
+  pullPolicy: Always
+
+tunnel:
+  id: "__TUNNEL_ID__"
+  credentialsFile: /etc/cloudflared/credentials.json
+
+  ingress:
+  - hostname: __ARGOCD_DOMAIN__
+    service: http://argocd-server.argocd.svc.cluster.local:8080
+
+  - hostname: __GRAFANA_DOMAIN__
+    service: http://grafana.grafana.svc.cluster.local:80
+
+  - hostname: __MLFLOW_DOMAIN__
+    service: http://mlflow-server.mlflow.svc.cluster.local:5000
+
+  - service: http_status:404
+
+extraVolumes:
+  - name: tunnel-credentials
+    secret:
+      secretName: cloudflare-tunnel-credentials
+
+extraVolumeMounts:
+  - name: tunnel-credentials
+    mountPath: /etc/cloudflared/credentials.json
+    subPath: credentials.json
+    readOnly: true
+
+livenessProbe:
+  httpGet: 
+    path: /ready
+    port: 2000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: cloudflared
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
