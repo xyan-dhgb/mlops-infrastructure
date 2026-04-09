@@ -116,8 +116,8 @@ ssm_run 900 "Install Monitoring" \
     --wait --timeout 5m" \
   "echo 'Monitoring Stack installed OK'"
 
-# Install Cloudflare
-ssm_run 300 "Install Cloudflare Tunnel" \
+# Cloudflare Step 1: Create namespace + secret (fail-fast before Helm install)
+ssm_run 60 "Cloudflare: Create Secret" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace cloudflare --dry-run=client -o yaml | kubectl apply -f -" \
   "echo '${CLOUDFLARE_CREDS_B64}' | base64 -d > /tmp/cloudflare-creds.json" \
@@ -126,11 +126,19 @@ ssm_run 300 "Install Cloudflare Tunnel" \
     --from-file=credentials.json=/tmp/cloudflare-creds.json \
     --dry-run=client -o yaml | kubectl apply -f -" \
   "rm -f /tmp/cloudflare-creds.json" \
+  "kubectl get secret cloudflared-cloudflare-tunnel -n cloudflare -o jsonpath='{.data.credentials\.json}' | base64 -d | head -c 20" \
+  "echo '...'" \
+  "echo '✅ Secret cloudflared-cloudflare-tunnel verified'"
+
+# Cloudflare Step 2: Render values + Helm install
+ssm_run 300 "Cloudflare: Helm Install" \
+  "${AWS_ENV_EXPORT}" \
   "sed -e 's|__TUNNEL_ID__|${CLOUDFLARE_TUNNEL_ID}|g' \
        -e 's|__ARGOCD_DOMAIN__|${ARGOCD_DOMAIN}|g' \
        -e 's|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g' \
        -e 's|__MLFLOW_DOMAIN__|${MLFLOW_DOMAIN}|g' \
        /tmp/helm-values/cloudflare/values.yaml > /tmp/cloudflare-rendered.yaml" \
+  "cat /tmp/cloudflare-rendered.yaml" \
   "helm repo add cloudflare https://cloudflare.github.io/helm-charts 2>/dev/null || true" \
   "helm repo update cloudflare" \
   "helm upgrade --install cloudflared cloudflare/cloudflare-tunnel \
@@ -138,6 +146,7 @@ ssm_run 300 "Install Cloudflare Tunnel" \
     --values /tmp/cloudflare-rendered.yaml \
     --wait --timeout 5m" \
   "kubectl rollout status deployment/cloudflared -n cloudflare --timeout=120s" \
+  "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflare-tunnel --tail=5 2>/dev/null || true" \
   "echo '✅ Cloudflare Tunnel installed OK'"
 
 # Verify all add-ons
