@@ -20,6 +20,7 @@ MLFLOW_B64=$(base64 -w 0 modules/mlflow/values.yaml)
 PROM_B64=$(base64  -w 0 modules/monitoring/prometheus/prometheus-values.yaml)
 GRAFANA_B64=$(base64 -w 0 modules/monitoring/grafana/grafana-values.yaml)
 CLOUDFLARE_B64=$(base64 -w 0 modules/cloudflare/cloudflare-values.yaml)
+CLOUDFLARE_CREDS_B64=$(echo "${CLOUDFLARE_TUNNEL_CREDENTIALS}" | base64 -w 0)
 
 ssm_run 30 "Upload Helm values" \
   "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana /tmp/helm-values/cloudflare" \
@@ -119,10 +120,12 @@ ssm_run 900 "Install Monitoring" \
 ssm_run 300 "Install Cloudflare Tunnel" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace cloudflare --dry-run=client -o yaml | kubectl apply -f -" \
+  "echo '${CLOUDFLARE_CREDS_B64}' | base64 -d > /tmp/cloudflare-creds.json" \
   "kubectl create secret generic cloudflared-cloudflare-tunnel \
     --namespace cloudflare \
-    --from-literal=credentials.json='${CLOUDFLARE_TUNNEL_CREDENTIALS}' \
+    --from-file=credentials.json=/tmp/cloudflare-creds.json \
     --dry-run=client -o yaml | kubectl apply -f -" \
+  "rm -f /tmp/cloudflare-creds.json" \
   "sed -e 's|__TUNNEL_ID__|${CLOUDFLARE_TUNNEL_ID}|g' \
        -e 's|__ARGOCD_DOMAIN__|${ARGOCD_DOMAIN}|g' \
        -e 's|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g' \
