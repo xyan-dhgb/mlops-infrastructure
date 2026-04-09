@@ -1,7 +1,7 @@
 name: "Helm Bootstrap - K8s Add-ons via SSM"
 # Flow:
 #  Phase 1 - EC2 Instance Connect (1 time, <30s): Install and start SSM Agent
-#  Phase 2 - AWS SSM (no expire): helm install LBC, ingress-nginx, ArgoCD, NVIDIA, Monitoring
+#  Phase 2 - AWS SSM (no expire): helm install LBC, ingress-nginx, ArgoCD, NVIDIA, Monitoring, Cloudflare
 
 on:
   workflow_dispatch:
@@ -67,6 +67,11 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
           GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          CLOUDFLARE_TUNNEL_CREDENTIALS: ${{ secrets.CLOUDFLARE_TUNNEL_CREDENTIALS }}
+          CLOUDFLARE_TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
+          ARGOCD_DOMAIN: ${{ secrets.ARGOCD_DOMAIN }}
+          GRAFANA_DOMAIN: ${{ secrets.GRAFANA_DOMAIN }}
+          MLFLOW_DOMAIN: ${{ secrets.MLFLOW_DOMAIN }}
 
       # Summary
       - name: Post bootstrap summary
@@ -77,16 +82,14 @@ jobs:
 
           | Add-on                       | Status |
           |------------------------------|--------|
-          | AWS Load Balancer Controller | `${{ steps.install_addons.outcome }}` |
-          | ingress-nginx                | `${{ steps.install_addons.outcome }}` |
           | ArgoCD                       | `${{ steps.install_addons.outcome }}` |
           | NVIDIA Device Plugin         | `${{ steps.install_addons.outcome }}` |
           | MLflow                       | `${{ steps.install_addons.outcome }}` |
           | Monitoring (Prom/Grafana)    | `${{ steps.install_addons.outcome }}` |
+          | Cloudflare Tunnel            | `${{ steps.install_addons.outcome }}` |
 
           **Bastion:** `${{ env.INSTANCE_ID }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
           EOF
 
 # Tip — Get ArgoCD initial admin password:
-# kubectl -n argocd get secret argocd-initial-admin-secret \
-#   -o jsonpath='{.data.password}' | base64 -d
+# kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
