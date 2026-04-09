@@ -1,4 +1,4 @@
-# Each replica remains 4 connections to cloudflare edge
+# Each replica maintains 4 connections to cloudflare edge
 # topologySpreadConstraints spreads across 2 AZ (ap-southeast-1a, ap-southeast-1b)
 replicaCount: 2
 
@@ -7,9 +7,14 @@ image:
   tag: latest
   pullPolicy: Always
 
-tunnel:
-  id: "__TUNNEL_ID__"
-  credentialsFile: /etc/cloudflared/creds/credentials.json
+cloudflare:
+  # tunnelName is used in the cloudflared config.yaml (accepts UUID or name)
+  tunnelName: "__TUNNEL_ID__"
+  # tunnelId is used in the secret template (skipped when secretName is set)
+  tunnelId: "__TUNNEL_ID__"
+  # Use the pre-created secret (created via kubectl before helm install)
+  # This skips the chart's built-in secret template
+  secretName: "cloudflared-cloudflare-tunnel"
 
   ingress:
   - hostname: __ARGOCD_DOMAIN__
@@ -20,17 +25,7 @@ tunnel:
 
   - hostname: __MLFLOW_DOMAIN__
     service: http://mlflow-server.mlflow.svc.cluster.local:5000
-
-  - service: http_status:404
-
-
-livenessProbe:
-  httpGet: 
-    path: /ready
-    port: 2000
-  initialDelaySeconds: 10
-  periodSeconds: 10
-  failureThreshold: 3
+  # NOTE: catch-all "http_status:404" is auto-appended by the chart template
 
 topologySpreadConstraints:
   - maxSkew: 1
