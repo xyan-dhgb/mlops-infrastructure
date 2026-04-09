@@ -14,6 +14,8 @@
 Request (localhost:5000) -> SSH Tunnel (Windows) -> Bastion Host -> kubectl port-forward -> MLflow Pod (Private Subnet)
 ```
 
+![Mô phỏng luồng hoạt động](/docs/diagram/port-forward.drawio.png)
+
 ## Yêu cầu
 
 | Thành phần         | Giá trị                                              |
@@ -57,5 +59,6 @@ ssh -i "D:\mlops-infr\new-bastion-key" ubuntu@ec2-IP_PUBLIC.ap-southeast-1.compu
 - Nếu terminal bị ngắt kết nối, bạn cần thực hiện lại các bước trên.
 
 ---
+
 > [!NOTE]
 > Tài liệu này áp dụng cho môi trường: AWS EKS ap-southeast-1 | Cluster: mlops-infr-dev-eks

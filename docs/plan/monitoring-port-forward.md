@@ -6,6 +6,10 @@
 
 Do các service giám sát nằm trong mạng nội bộ, chúng ta cần dùng kỹ thuật SSH Tunneling kết hợp `kubectl port-forward` để truy cập giao diện web của Grafana và Prometheus.
 
+## Luồng hoạt động
+
+![Mô phỏng luồng hoạt động](/docs/diagram/port-forward.drawio.png)
+
 ## Thông tin Service
 
 | Service    | Namespace    | Service Name                           | Port mặc định | URL Local             |
