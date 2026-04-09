@@ -9,7 +9,7 @@ image:
 
 tunnel:
   id: "__TUNNEL_ID__"
-  credentialsFile: /etc/cloudflared/credentials.json
+  credentialsFile: /etc/cloudflared/creds/credentials.json
 
   ingress:
   - hostname: __ARGOCD_DOMAIN__
