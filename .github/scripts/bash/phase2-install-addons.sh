@@ -52,7 +52,7 @@ ssm_run 900 "Install ArgoCD" \
 # Install NVIDIA Device Plugin
 ssm_run 120 "Install NVIDIA Device Plugin" \
   "${AWS_ENV_EXPORT}" \
-  "kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/nvidia-device-plugin.yml" \
+  "kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/deployments/static/nvidia-device-plugin.yml" \
   "echo '✅ NVIDIA Device Plugin applied'"
 
 # Take MLflow config from AWS on runner (with IAM permissions)
