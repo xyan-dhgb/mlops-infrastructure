@@ -19,61 +19,21 @@ ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
 MLFLOW_B64=$(base64 -w 0 modules/mlflow/values.yaml)
 PROM_B64=$(base64  -w 0 modules/monitoring/prometheus/prometheus-values.yaml)
 GRAFANA_B64=$(base64 -w 0 modules/monitoring/grafana/grafana-values.yaml)
+CLOUDFLARE_B64=$(base64 -w 0 modules/cloudflare/cloudflare-values.yaml)
 
 ssm_run 30 "Upload Helm values" \
-  "mkdir -p /tmp/helm-values/ingress-nginx /tmp/helm-values/argocd /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana" \
-  "echo '${NGINX_B64}'   | base64 -d > /tmp/helm-values/ingress-nginx/values.yaml" \
+  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana /tmp/helm-values/cloudflare" \
   "echo '${ARGOCD_B64}'  | base64 -d > /tmp/helm-values/argocd/values.yaml" \
   "echo '${MLFLOW_B64}'  | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
   "echo '${PROM_B64}'    | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
   "echo '${GRAFANA_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml" \
+  "echo '${CLOUDFLARE_B64}' | base64 -d > /tmp/helm-values/cloudflare/values.yaml" \
   "echo Values uploaded OK"
-
 #  Configure kubectl on bastion
 ssm_run 60 "Configure kubectl" \
   "${AWS_ENV_EXPORT}" \
   "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}" \
   "kubectl cluster-info"
-
-# Install AWS Load Balancer Controller
-ssm_run 600 "Install LBC" \
-  "${AWS_ENV_EXPORT}" \
-  "LBC_ROLE_ARN=\$(aws iam get-role --role-name '${CLUSTER_NAME}-aws-load-balancer-controller' --query 'Role.Arn' --output text)" \
-  "VPC_ID=\$(aws eks describe-cluster --name '${CLUSTER_NAME}' --query 'cluster.resourcesVpcConfig.vpcId' --output text)" \
-  "helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true" \
-  "helm repo update eks" \
-  "helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
-    --namespace kube-system \
-    --set clusterName='${CLUSTER_NAME}' \
-    --set serviceAccount.create=true \
-    --set serviceAccount.name=aws-load-balancer-controller \
-    --set \"serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=\${LBC_ROLE_ARN}\" \
-    --set region='${AWS_REGION}' \
-    --set vpcId=\${VPC_ID} \
-    --wait --timeout 5m" \
-  "kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=120s" \
-  "echo '✅ LBC installed OK'"
-
-# Wait for LBC webhook
-ssm_run 120 "Wait for LBC webhook" \
-  "${AWS_ENV_EXPORT}" \
-  "sleep 30" \
-  "kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller -n kube-system --timeout=60s" \
-  "echo '✅ LBC webhook ready'"
-
-# Install ingress-nginx
-ssm_run 900 "Install ingress-nginx" \
-  "${AWS_ENV_EXPORT}" \
-  "sed 's/\${replica_count}/2/g' /tmp/helm-values/ingress-nginx/values.yaml > /tmp/ingress-nginx-rendered.yaml" \
-  "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>/dev/null || true" \
-  "helm repo update ingress-nginx" \
-  "helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-    --namespace ingress-nginx --create-namespace \
-    --version '4.14.3' \
-    --values /tmp/ingress-nginx-rendered.yaml \
-    --wait --timeout 10m" \
-  "kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=300s" \
-  "echo '✅ ingress-nginx installed OK'"
 
 # Install ArgoCD
 ssm_run 900 "Install ArgoCD" \
@@ -155,14 +115,36 @@ ssm_run 900 "Install Monitoring" \
     --wait --timeout 5m" \
   "echo 'Monitoring Stack installed OK'"
 
+# Install Cloudflare
+ssm_run 300 "Install Cloudflare Tunnel" \
+  "${AWS_ENV_EXPORT}" \
+  "kubectl create namespace cloudflare --dry-run=client -o yaml | kubectl apply -f -" \
+  "kubectl create secret generic cloudflare-tunnel-credentials \
+    --namespace cloudflare \
+    --from-literal=credentials.json='${CLOUDFLARE_TUNNEL_CREDENTIALS}' \
+    --dry-run=client -o yaml | kubectl apply -f -" \
+  "sed -e 's|__TUNNEL_ID__|${CLOUDFLARE_TUNNEL_ID}|g' \
+       -e 's|__ARGOCD_DOMAIN__|${ARGOCD_DOMAIN}|g' \
+       -e 's|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g' \
+       -e 's|__MLFLOW_DOMAIN__|${MLFLOW_DOMAIN}|g' \
+       /tmp/helm-values/cloudflare/values.yaml > /tmp/cloudflare-rendered.yaml" \
+  "helm repo add cloudflare https://cloudflare.github.io/helm-charts 2>/dev/null || true" \
+  "helm repo update cloudflare" \
+  "helm upgrade --install cloudflared cloudflare/cloudflare-tunnel \
+    --namespace cloudflare \
+    --values /tmp/cloudflare-rendered.yaml \
+    --wait --timeout 5m" \
+  "kubectl rollout status deployment/cloudflared -n cloudflare --timeout=120s" \
+  "echo '✅ Cloudflare Tunnel installed OK'"
+
 # Verify all add-ons
 ssm_run 60 "Verify add-ons" \
   "${AWS_ENV_EXPORT}" \
-  "kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller" \
-  "kubectl get pods -n ingress-nginx" \
-  "kubectl get svc  ingress-nginx-controller -n ingress-nginx" \
   "kubectl get pods -n argocd" \
+  "kubectl get pods -n mlflow" \
   "kubectl get pods -n prometheus" \
-  "kubectl get pods -n grafana"
+  "kubectl get pods -n grafana" \
+  "kubectl get pods -n cloudflare" \
+  "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflared --tail=5"
 
 echo "🎉 All add-ons bootstrapped successfully!"#!/usr/bin/env bash
