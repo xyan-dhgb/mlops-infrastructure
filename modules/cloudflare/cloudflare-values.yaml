@@ -18,7 +18,9 @@ cloudflare:
 
   ingress:
   - hostname: __ARGOCD_DOMAIN__
-    service: http://argocd-server.argocd.svc.cluster.local:8080
+    service: https://argocd-server.argocd.svc.cluster.local:443
+    originRequest:
+      noTLSVerify: true
 
   - hostname: __GRAFANA_DOMAIN__
     service: http://grafana.grafana.svc.cluster.local:80
