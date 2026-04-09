@@ -19,3 +19,9 @@ datasources:
       url: http://prometheus-kube-prometheus-prometheus.prometheus.svc.cluster.local:9090
       access: proxy
       isDefault: true
+
+grafana.ini:
+  server:
+    domain: __GRAFANA_DOMAIN__
+    root_url: https://__GRAFANA_DOMAIN__
+    serve_from_sub_path: false
