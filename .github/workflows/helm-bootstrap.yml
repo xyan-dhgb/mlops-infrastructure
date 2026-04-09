@@ -51,7 +51,7 @@ jobs:
           bash .github/scripts/bash/phase1-start-ssm-agent.sh
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
-          BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
+          BASTION_PRIVATE_KEY: ${{ secrets.BASTION_PRIVATE_KEY }}
 
       # Phase 2: Helm installs via SSM
       - name: "Phase 2: Install K8s Add-ons"
