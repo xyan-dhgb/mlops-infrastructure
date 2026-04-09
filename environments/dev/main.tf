@@ -80,12 +80,6 @@ module "ecr" {
   }
 }
 
-module "route53" {
-  source = "../../modules/route53"
-
-  domain_name = var.domain_name
-}
-
 
 # EKS Access Entry for Bastion Host
 data "aws_iam_role" "bastion_role" {
