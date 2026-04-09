@@ -108,10 +108,12 @@ ssm_run 900 "Install Monitoring" \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --wait --timeout 10m" \
   "kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -" \
+  "sed -e 's|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g' \
+       /tmp/helm-values/monitoring/grafana/values.yaml > /tmp/grafana-rendered.yaml" \
   "helm upgrade --install grafana grafana/grafana \
     --namespace grafana \
     --version '7.3.0' \
-    --values /tmp/helm-values/monitoring/grafana/values.yaml \
+    --values /tmp/grafana-rendered.yaml \
     --set adminPassword='${GRAFANA_ADMIN_PASSWORD}' \
     --wait --timeout 5m" \
   "echo 'Monitoring Stack installed OK'"
