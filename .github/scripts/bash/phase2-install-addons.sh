@@ -119,7 +119,7 @@ ssm_run 900 "Install Monitoring" \
 ssm_run 300 "Install Cloudflare Tunnel" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace cloudflare --dry-run=client -o yaml | kubectl apply -f -" \
-  "kubectl create secret generic cloudflare-tunnel-credentials \
+  "kubectl create secret generic cloudflared-cloudflare-tunnel \
     --namespace cloudflare \
     --from-literal=credentials.json='${CLOUDFLARE_TUNNEL_CREDENTIALS}' \
     --dry-run=client -o yaml | kubectl apply -f -" \

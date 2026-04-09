@@ -23,16 +23,6 @@ tunnel:
 
   - service: http_status:404
 
-extraVolumes:
-  - name: tunnel-credentials
-    secret:
-      secretName: cloudflare-tunnel-credentials
-
-extraVolumeMounts:
-  - name: tunnel-credentials
-    mountPath: /etc/cloudflared/credentials.json
-    subPath: credentials.json
-    readOnly: true
 
 livenessProbe:
   httpGet: 
