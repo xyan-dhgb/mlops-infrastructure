@@ -65,6 +65,33 @@ rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
 
 helm version
 
+# 6. Install ArgoCD CLI
+echo "--- Installing ArgoCD CLI ---"
+
+# Get latest ArgoCD version
+ARGOCD_VERSION=$(curl -fsSL --http1.1 https://api.github.com/repos/argoproj/argo-cd/releases/latest \
+  | jq -r '.tag_name')
+
+echo "Installing ArgoCD CLI ${ARGOCD_VERSION}..."
+
+# Download ArgoCD CLI
+curl -fsSL \
+  "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64" \
+  -o /tmp/argocd
+
+# Verify file is not empty
+if [ ! -s /tmp/argocd ]; then
+  echo "ERROR: argocd binary download failed"
+  exit 1
+fi
+
+# Make executable and move to /usr/local/bin
+install -o root -g root -m 0755 /tmp/argocd /usr/local/bin/argocd
+rm -f /tmp/argocd
+
+# Verify installation
+argocd version --client
+
 echo "=== Bootstrap finished at $(date) ==="
 echo "NOTE: To configure kubectl after SSH-ing in:"
 echo "  aws eks update-kubeconfig --region <region> --name <cluster-name>"

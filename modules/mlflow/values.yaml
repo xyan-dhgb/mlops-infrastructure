@@ -3,6 +3,8 @@
 #   __IRSA_ROLE_ARN__  → IAM Role ARN cho IRSA
 #   __S3_BUCKET__      → Tên S3 bucket artifacts
 #   __AWS_REGION__     → AWS region (vd: ap-southeast-1)
+#   __DB_HOST__        → PostgreSQL DB host
+#   __DB_PASS__        → PostgreSQL DB password
 
 serviceAccount:
   create: true
