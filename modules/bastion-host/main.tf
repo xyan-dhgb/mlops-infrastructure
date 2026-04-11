@@ -68,21 +68,6 @@ resource "aws_iam_role" "bastion_ssm" {
   }
 }
 
-resource "aws_iam_role_policy" "bastion_eks_describe" {
-  name = "${var.bastion_name}-eks-describe"
-  role = aws_iam_role.bastion_ssm.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = "eks:DescribeCluster"
-        Resource = "*"
-      }
-    ]
-  })
-}
 
 resource "aws_iam_role_policy_attachment" "bastion_ssm" {
   role       = aws_iam_role.bastion_ssm.name
@@ -92,6 +77,54 @@ resource "aws_iam_role_policy_attachment" "bastion_ssm" {
 resource "aws_iam_instance_profile" "bastion_ssm" {
   name = "${var.bastion_name}-ssm-profile"
   role = aws_iam_role.bastion_ssm.name
+}
+
+resource "aws_iam_role_policy" "bastion_eks_readonly" {
+  name = "${var.bastion_name}-eks-readonly"
+  role = aws_iam_role.bastion_ssm.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EKSReadOnly"
+        Effect = "Allow"
+        Action = [
+          "eks:DescribeCluster",
+          "eks:DescribeNodegroup",
+          "eks:ListNodegroups"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "IAMReadOnly"
+        Effect = "Allow"
+        Action = [
+          "iam:GetRole" # phase2: aws iam get-role mlops-mlflow-irsa-dev
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "RDSReadOnly"
+        Effect = "Allow"
+        Action = [
+          "rds:DescribeDBInstances" # phase2: aws rds describe-db-instances
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EC2ReadOnly"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",   # verify GPU node AMI
+          "ec2:DescribeImages",      # xem tên AMI
+          "ec2:DescribeNatGateways", # debug network
+          "ec2:DescribeRouteTables"  # debug network
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 # One bastion host per subnet for high availability
