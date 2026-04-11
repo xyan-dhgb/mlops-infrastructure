@@ -75,11 +75,11 @@ ssm_run 720 "Install MLflow" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace mlflow --dry-run=client -o yaml | kubectl apply -f -" \
   "kubectl create secret generic mlflow-secret -n mlflow \
-    --from-literal=db-host='${DB_HOST}' \
+    --from-literal=db-host=\"${DB_HOST}\" \
     --from-literal=db-port='5432' \
     --from-literal=db-name='mlflow' \
     --from-literal=db-user='mlflow' \
-    --from-literal=db-pass='${MLFLOW_DB_PASSWORD}' \
+    --from-literal=db-pass=\"${MLFLOW_DB_PASSWORD}\" \
     --dry-run=client -o yaml | kubectl apply -f -" \
   "sed -e 's|__IRSA_ROLE_ARN__|${IRSA_ROLE_ARN}|g' \
        -e 's|__S3_BUCKET__|${S3_BUCKET}|g' \
