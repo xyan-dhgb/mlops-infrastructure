@@ -1,0 +1,1 @@
+{"commands": ["sudo -u root bash -c 'export KUBECONFIG=/root/.kube/config; kubectl logs -n mlflow -l app.kubernetes.io/name=mlflow -c mlflow-db-migration --tail=50'"]}
