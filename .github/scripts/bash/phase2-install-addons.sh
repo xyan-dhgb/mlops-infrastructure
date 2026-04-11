@@ -84,6 +84,8 @@ ssm_run 720 "Install MLflow" \
   "sed -e 's|__IRSA_ROLE_ARN__|${IRSA_ROLE_ARN}|g' \
        -e 's|__S3_BUCKET__|${S3_BUCKET}|g' \
        -e 's|__AWS_REGION__|${AWS_REGION}|g' \
+       -e 's|__DB_HOST__|${DB_HOST}|g' \
+       -e 's|__DB_PASS__|${MLFLOW_DB_PASSWORD}|g' \
        /tmp/helm-values/mlflow/values.yaml > /tmp/mlflow-rendered.yaml" \
   "helm repo add community-charts https://community-charts.github.io/helm-charts 2>/dev/null || true" \
   "helm repo update community-charts" \
