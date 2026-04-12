@@ -74,6 +74,8 @@ resource "aws_iam_role_policy_attachment" "bastion_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+data "aws_region" "current" {}
+
 resource "aws_iam_instance_profile" "bastion_ssm" {
   name = "${var.bastion_name}-ssm-profile"
   role = aws_iam_role.bastion_ssm.name
@@ -141,7 +143,11 @@ resource "aws_instance" "bastion_host" {
 
   vpc_security_group_ids = [aws_security_group.allow_ssh.id]
 
-  user_data = base64encode(file("${path.module}/scripts/user_data.sh"))
+  user_data = base64encode(templatefile("${path.module}/scripts/user_data.sh", {
+    aws_region   = data.aws_region.current.name
+    cluster_name = var.cluster_name
+  }))
+  user_data_replace_on_change = true
 
   tags = {
     Name = "${var.bastion_name}-${tonumber(each.key) + 1}"
