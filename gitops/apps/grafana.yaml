@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+  finalizers: []
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+    targetRevision: dev
+    path: modules/monitoring/grafana
+    helm:
+      releaseName: grafana
+      valueFiles:
+        - grafana-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: grafana
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Secret
+      name: grafana
+      jsonPointers:
+        - /data/admin-password
+        - /data/admin-user

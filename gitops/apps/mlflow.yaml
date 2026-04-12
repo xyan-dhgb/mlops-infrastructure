@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mlflow
+  namespace: argocd
+  finalizers: []
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+    targetRevision: dev
+    path: modules/mlflow
+    helm:
+      releaseName: mlflow-server   # khớp với helm install trong phase2
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mlflow
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Secret
+      name: mlflow-server-env-secret          # config secret
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: ConfigMap
+      name: mlflow-server-env-configmap
+      jsonPointers:
+        - /data
