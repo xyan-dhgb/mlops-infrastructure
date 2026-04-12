@@ -6,13 +6,13 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: platform
   source:
     repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
-    targetRevision: feat/argocd-app-gitops
+    targetRevision: dev
     path: gitops/apps
     directory:
-      recurese: true
+      recurse: true
       include: "*.yaml"
   destination:
     server: https://kubernetes.default.svc

@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: "MLOps platform add-ons, adopted from SSM pipeline"
+  sourceRepos:
+    - "https://github.com/xyan-dhgb/mlops-infrastructure.git"
+  destinations:
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+    - namespace: mlflow
+      server: https://kubernetes.default.svc
+    - namespace: prometheus
+      server: https://kubernetes.default.svc
+    - namespace: grafana
+      server: https://kubernetes.default.svc
+    - namespace: cloudflare
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: false
