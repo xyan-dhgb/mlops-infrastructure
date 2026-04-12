@@ -27,14 +27,15 @@ unzip -q /tmp/awscliv2.zip -d /tmp
 rm -rf /tmp/awscliv2.zip /tmp/aws
 
 aws --version
+aws eks update-kubeconfig --region ${aws_region} --name ${cluster_name}
 
 # 4. Install kubectl
 # Ensure it matches EKS cluster minor version (skew policy: ±1)
 echo "--- Installing kubectl ---"
 
 KUBECTL_VERSION=$(curl -fsSL "https://dl.k8s.io/release/stable.txt")
-curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /tmp/kubectl
-curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" -o /tmp/kubectl.sha256
+curl -fsSL "https://dl.k8s.io/release/$${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /tmp/kubectl
+curl -fsSL "https://dl.k8s.io/release/$${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" -o /tmp/kubectl.sha256
 echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum --check
 install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
 rm -f /tmp/kubectl /tmp/kubectl.sha256
@@ -47,10 +48,10 @@ echo "--- Installing Helm ---"
 HELM_VERSION=$(curl -fsSL --http1.1 https://api.github.com/repos/helm/helm/releases/latest \
   | jq -r '.tag_name')
 
-echo "Installing Helm ${HELM_VERSION}..."
+echo "Installing Helm $${HELM_VERSION}..."
 
 curl -fsSL --http1.1 \
-  "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+  "https://get.helm.sh/helm-$${HELM_VERSION}-linux-amd64.tar.gz" \
   -o /tmp/helm.tar.gz
 
 # Verify file không rỗng
@@ -72,11 +73,11 @@ echo "--- Installing ArgoCD CLI ---"
 ARGOCD_VERSION=$(curl -fsSL --http1.1 https://api.github.com/repos/argoproj/argo-cd/releases/latest \
   | jq -r '.tag_name')
 
-echo "Installing ArgoCD CLI ${ARGOCD_VERSION}..."
+echo "Installing ArgoCD CLI $${ARGOCD_VERSION}..."
 
 # Download ArgoCD CLI
 curl -fsSL \
-  "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64" \
+  "https://github.com/argoproj/argo-cd/releases/download/$${ARGOCD_VERSION}/argocd-linux-amd64" \
   -o /tmp/argocd
 
 # Verify file is not empty
@@ -93,8 +94,6 @@ rm -f /tmp/argocd
 argocd version --client
 
 echo "=== Bootstrap finished at $(date) ==="
-echo "NOTE: To configure kubectl after SSH-ing in:"
-echo "  aws eks update-kubeconfig --region <region> --name <cluster-name>"
 
-## Xem user_data đã xong chưa
-## cloud-init status --wait
+## Check if user_data has completed
+cloud-init status --wait
