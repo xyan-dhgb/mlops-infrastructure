@@ -31,3 +31,8 @@ variable "vpc_id" {
   type        = string
   description = "The ID of the VPC"
 }
+
+variable "cluster_name" {
+  type        = string
+  description = "Name of the EKS cluster to configure kubeconfig for"
+}
