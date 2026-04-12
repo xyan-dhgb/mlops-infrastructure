@@ -78,6 +78,8 @@ resource "aws_iam_instance_profile" "bastion_ssm" {
   role = aws_iam_role.bastion_ssm.name
 }
 
+data "aws_region" "current" {}
+
 # One bastion host per subnet for high availability
 resource "aws_instance" "bastion_host" {
   for_each = { for i, id in var.subnet_ids : tostring(i) => id }
@@ -92,7 +94,10 @@ resource "aws_instance" "bastion_host" {
 
   vpc_security_group_ids = [aws_security_group.allow_ssh.id]
 
-  user_data                   = base64encode(file("${path.module}/scripts/user_data.sh"))
+  user_data = base64encode(templatefile("${path.module}/scripts/user_data.sh", {
+    aws_region   = data.aws_region.current.name
+    cluster_name = var.cluster_name
+  }))
   user_data_replace_on_change = true
 
   tags = {
