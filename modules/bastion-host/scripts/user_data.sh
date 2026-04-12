@@ -27,7 +27,6 @@ unzip -q /tmp/awscliv2.zip -d /tmp
 rm -rf /tmp/awscliv2.zip /tmp/aws
 
 aws --version
-aws eks update-kubeconfig --region ${aws_region} --name ${cluster_name}
 
 # 4. Install kubectl
 # Ensure it matches EKS cluster minor version (skew policy: ±1)
@@ -92,6 +91,13 @@ rm -f /tmp/argocd
 
 # Verify installation
 argocd version --client
+
+echo "--- Waiting for EKS cluster '${cluster_name}' to become ACTIVE ---"
+aws eks wait cluster-active \
+  --region ${aws_region} \
+  --name ${cluster_name}
+
+aws eks update-kubeconfig --region ${aws_region} --name ${cluster_name}
 
 echo "=== Bootstrap finished at $(date) ==="
 
