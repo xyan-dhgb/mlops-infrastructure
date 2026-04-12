@@ -1,0 +1,80 @@
+name: "ArgoCD Bootstrap - GitOps App-of-Apps"
+# Flow:
+#  Phase 1 - EC2 Instance Connect (1 time, <30s): Install and start SSM Agent
+#  Phase 3 - AWS SSM: Deploy AppProject and App-of-Apps to trigger GitOps sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      eks_cluster_name:
+        description: "Tên EKS cluster"
+        required: true
+        default: "mlops-infr-dev-eks"
+        type: string
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: "ap-southeast-1"
+
+jobs:
+  bootstrap:
+    name: "Bootstrap ArgoCD GitOps"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Phase 1: EC2 Instance Connect and start SSM Agent
+      - name: "Phase 1: Start SSM Agent on Bastion"
+        run: |
+          echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> "$GITHUB_ENV"
+          chmod +x .github/scripts/bash/phase1-start-ssm-agent.sh
+          bash .github/scripts/bash/phase1-start-ssm-agent.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          BASTION_PRIVATE_KEY: ${{ secrets.BASTION_PRIVATE_KEY }}
+
+      # Phase 3: ArgoCD GitOps Bootstrap via SSM
+      - name: "Phase 3: Bootstrap GitOps"
+        id: argocd_bootstrap
+        run: |
+          chmod +x .github/scripts/bash/ssm-run.sh .github/scripts/bash/phase3-argocd-bootstrap.sh
+          bash .github/scripts/bash/phase3-argocd-bootstrap.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          INSTANCE_ID: ${{ env.INSTANCE_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      # Summary
+      - name: Post bootstrap summary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << 'EOF'
+          ## ArgoCD GitOps Bootstrap — ${{ github.event.inputs.environment }}
+
+          | Component                    | Status |
+          |------------------------------|--------|
+          | AppProject & App-of-Apps     | `${{ steps.argocd_bootstrap.outcome }}` |
+
+          **Bastion:** `${{ env.INSTANCE_ID }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
+          EOF
