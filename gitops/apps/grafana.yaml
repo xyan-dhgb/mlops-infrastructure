@@ -6,18 +6,24 @@ metadata:
   finalizers: []
 spec:
   project: platform
-  source:
-    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
-    targetRevision: dev
-    path: modules/monitoring/grafana
-    helm:
-      releaseName: grafana
-      valueFiles:
-        - grafana-values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: grafana
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: grafana
+      targetRevision: 7.3.0
+      helm:
+        releaseName: grafana
+        valueFiles:
+          - $values/modules/monitoring/grafana/grafana-values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
