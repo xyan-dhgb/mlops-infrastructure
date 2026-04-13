@@ -45,6 +45,15 @@ ssm_run 900 "Install ArgoCD" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "helm repo update argo" \
+  "# Clear stale SSA field ownership before upgrade (safe no-op on first install)" \
+  "for r in \
+     secret/argocd-notifications-secret \
+     deployment/argocd-applicationset-controller \
+     deployment/argocd-server \
+     deployment/argocd-repo-server \
+     deployment/argocd-dex-server; do \
+     kubectl patch \$r -n argocd --type=merge -p '{\"metadata\":{\"managedFields\":null}}' 2>/dev/null || true; \
+   done" \
   "helm upgrade --install argocd argo/argo-cd \
     --namespace argocd --create-namespace \
     --version '7.5.2' \
