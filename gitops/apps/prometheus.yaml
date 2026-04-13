@@ -3,7 +3,6 @@ kind: Application
 metadata:
   name: prometheus
   namespace: argocd
-  finalizers: []
 spec:
   project: platform
   destination:

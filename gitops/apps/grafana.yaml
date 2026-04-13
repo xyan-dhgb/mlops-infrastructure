@@ -3,7 +3,6 @@ kind: Application
 metadata:
   name: grafana
   namespace: argocd
-  finalizers: []
 spec:
   project: platform
   destination:
