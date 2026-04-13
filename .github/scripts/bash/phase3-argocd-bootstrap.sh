@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Phase 3: Bootstrap ArgoCD with GitOps manifests
-# Env vars required: INSTANCE_ID, AWS_REGION, AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
 set -euo pipefail
 
@@ -41,9 +40,10 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
   "argocd app sync k8s-infra-addons --core" \
   "argocd app wait k8s-infra-addons --sync --core --timeout 120 || echo '⚠️ Wait timeout, but sync triggered'" \
   \
-  "# 4. Sync all child apps created by App-of-Apps" \
-  "echo '🔄 Syncing all child apps...'" \
-  "argocd app sync -l app.kubernetes.io/instance=k8s-infra-addons --core || argocd app sync --all --core || echo '✅ Auto-sync will handle the rest'" \
+  "# 4. Sync child apps created by App-of-Apps
+   echo '🔄 Syncing all child apps...'
+   argocd app sync -l app.kubernetes.io/instance=k8s-infra-addons --core \
+     || echo '✅ Auto-sync will handle the rest'" \
   "echo '🎉 All apps synced successfully'"
 
 echo "🚀 ArgoCD Bootstrap Phase completed successfully!"
