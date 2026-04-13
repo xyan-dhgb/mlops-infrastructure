@@ -165,6 +165,11 @@ ssm_run 900 "Install Monitoring" \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --wait --timeout 10m" \
   "kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -" \
+  "# Clear ArgoCD field ownership to avoid SSA conflicts with Helm" \
+  "for r in secret/grafana configmap/grafana deployment/grafana role/grafana; do \
+     kubectl patch \$r -n grafana --type=merge -p '{\"metadata\":{\"managedFields\":null}}' 2>/dev/null || true; \
+   done" \
+  "kubectl patch clusterrole grafana-clusterrole --type=merge -p '{\"metadata\":{\"managedFields\":null}}' 2>/dev/null || true" \
   "sed -e 's|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g' \
        /tmp/helm-values/monitoring/grafana/values.yaml > /tmp/grafana-rendered.yaml" \
   "helm upgrade --install grafana grafana/grafana \
@@ -193,6 +198,10 @@ ssm_run 60 "Cloudflare: Create Secret" \
 # Cloudflare Step 2: Render values + Helm install
 ssm_run 300 "Cloudflare: Helm Install" \
   "${AWS_ENV_EXPORT}" \
+  "# Clear ArgoCD field ownership to avoid SSA conflicts with Helm" \
+  "for r in configmap/cloudflared-cloudflare-tunnel deployment/cloudflared-cloudflare-tunnel; do \
+     kubectl patch \$r -n cloudflare --type=merge -p '{\"metadata\":{\"managedFields\":null}}' 2>/dev/null || true; \
+   done" \
   "sed -e 's|__TUNNEL_ID__|${CLOUDFLARE_TUNNEL_ID}|g' \
        -e 's|__ARGOCD_DOMAIN__|${ARGOCD_DOMAIN}|g' \
        -e 's|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g' \
