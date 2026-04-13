@@ -37,13 +37,13 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
   "sleep 5" \
   \
   "# 3. Sync App-of-Apps first to populate child apps" \
-  "echo '🔄 Syncing App-of-Apps...'" \
-  "argocd app sync app-of-apps --core" \
-  "argocd app wait app-of-apps --sync --core --timeout 120 || echo '⚠️ Wait timeout, but sync triggered'" \
+  "echo '🔄 Syncing k8s-infra-addons...'" \
+  "argocd app sync k8s-infra-addons --core" \
+  "argocd app wait k8s-infra-addons --sync --core --timeout 120 || echo '⚠️ Wait timeout, but sync triggered'" \
   \
   "# 4. Sync all child apps created by App-of-Apps" \
   "echo '🔄 Syncing all child apps...'" \
-  "argocd app sync -l app.kubernetes.io/instance=app-of-apps --core || argocd app sync --all --core || echo '✅ Auto-sync will handle the rest'" \
+  "argocd app sync -l app.kubernetes.io/instance=k8s-infra-addons --core || argocd app sync --all --core || echo '✅ Auto-sync will handle the rest'" \
   "echo '🎉 All apps synced successfully'"
 
 echo "🚀 ArgoCD Bootstrap Phase completed successfully!"
