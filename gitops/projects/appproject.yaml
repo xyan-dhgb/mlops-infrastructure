@@ -6,7 +6,7 @@ metadata:
 spec:
   description: "MLOps platform add-ons, adopted from SSM pipeline"
   sourceRepos:
-    - "https://github.com/xyan-dhgb/mlops-infrastructure.git"
+    - "*"
   destinations:
     - namespace: argocd
       server: https://kubernetes.default.svc
