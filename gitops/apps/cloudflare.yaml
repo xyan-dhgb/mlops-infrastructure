@@ -20,9 +20,6 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
