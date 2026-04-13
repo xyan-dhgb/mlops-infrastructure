@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Phase 2: Upload values → Configure kubectl → Install 5 add-ons through AWS SSM
-# Env vars required (already have $GITHUB_ENV from phase 1): INSTANCE_ID, AWS_REGION, CLUSTER_NAME, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, MLFLOW_DB_PASSWORD, GRAFANA_ADMIN_PASSWORD
+
 
 set -euo pipefail
 
@@ -13,24 +13,51 @@ AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
 AWS_DEFAULT_REGION='${AWS_REGION}'"
 
 
-# Upload Helm values (base64 → bastion /tmp/helm-values/)
+# RUNNER-SIDE: Encode / render all values files before uploading to bastion
 echo "📦 Encoding Helm values files..."
 ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
 MLFLOW_B64=$(base64 -w 0 modules/mlflow/values.yaml)
 PROM_B64=$(base64  -w 0 modules/monitoring/prometheus/prometheus-values.yaml)
-GRAFANA_B64=$(base64 -w 0 modules/monitoring/grafana/grafana-values.yaml)
-CLOUDFLARE_B64=$(base64 -w 0 modules/cloudflare/cloudflare-values.yaml)
 CLOUDFLARE_CREDS_B64=$(echo "${CLOUDFLARE_TUNNEL_CREDENTIALS}" | base64 -w 0)
 
+# FIX: Render Grafana values on runner
+echo "🔧 Rendering Grafana values.yaml on runner..."
+GRAFANA_RENDERED=$(sed \
+  -e "s|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g" \
+  modules/monitoring/grafana/grafana-values.yaml)
+if echo "${GRAFANA_RENDERED}" | grep -qE '__[A-Z_]+__'; then
+  echo "❌ ERROR: grafana-values.yaml còn placeholder chưa replace:"
+  echo "${GRAFANA_RENDERED}" | grep -E '__[A-Z_]+__'
+  exit 1
+fi
+echo "✅ Grafana placeholders replaced"
+GRAFANA_B64=$(echo "${GRAFANA_RENDERED}" | base64 -w 0)
+
+# FIX: Render Cloudflare values on runner
+echo "🔧 Rendering Cloudflare values.yaml on runner..."
+CLOUDFLARE_RENDERED=$(sed \
+  -e "s|__TUNNEL_ID__|${CLOUDFLARE_TUNNEL_ID}|g" \
+  -e "s|__ARGOCD_DOMAIN__|${ARGOCD_DOMAIN}|g" \
+  -e "s|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g" \
+  -e "s|__MLFLOW_DOMAIN__|${MLFLOW_DOMAIN}|g" \
+  modules/cloudflare/cloudflare-values.yaml)
+if echo "${CLOUDFLARE_RENDERED}" | grep -qE '__[A-Z_]+__'; then
+  echo "❌ ERROR: cloudflare-values.yaml còn placeholder chưa replace:"
+  echo "${CLOUDFLARE_RENDERED}" | grep -E '__[A-Z_]+__'
+  exit 1
+fi
+echo "✅ Cloudflare placeholders replaced"
+CLOUDFLARE_RENDERED_B64=$(echo "${CLOUDFLARE_RENDERED}" | base64 -w 0)
+
+
+# Upload tất cả Helm values lên bastion (đã render đầy đủ)
 ssm_run 30 "Upload Helm values" \
   "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana /tmp/helm-values/cloudflare" \
-  "echo '${ARGOCD_B64}'    | base64 -d > /tmp/helm-values/argocd/values.yaml" \
-  "echo '${MLFLOW_B64}'    | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
-  "echo '${PROM_B64}'      | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
-  "echo '${GRAFANA_B64}'   | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml" \
-  "echo '${CLOUDFLARE_B64}' | base64 -d > /tmp/helm-values/cloudflare/values.yaml" \
+  "echo '${ARGOCD_B64}'   | base64 -d > /tmp/helm-values/argocd/values.yaml" \
+  "echo '${MLFLOW_B64}'   | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
+  "echo '${PROM_B64}'     | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
+  "echo '${GRAFANA_B64}'  | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml" \
   "echo 'Values uploaded OK'"
-
 
 
 # Configure kubectl on bastion
@@ -39,17 +66,14 @@ ssm_run 60 "Configure kubectl" \
   "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}" \
   "kubectl cluster-info"
 
-# Install ArgoCD
-# FIX 1: Create namespace before patching (patch needs existing namespace)
-# FIX 2: Comment inline in the same string, don't seperate to different argument
-# FIX 3: All lines with 2-space indentation are located in ssm_run.
 
+# Install ArgoCD
 ssm_run 900 "Install ArgoCD" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "helm repo update argo" \
   "kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -" \
-  "# FIX: To remove managedFields, use patch --type=json; the namespace must exist first.
+  "# Remove managedFields (namespace must exist first)
    for r in \
      secret/argocd-notifications-secret \
      deployment/argocd-applicationset-controller \
@@ -68,6 +92,7 @@ ssm_run 900 "Install ArgoCD" \
     --wait --timeout 10m" \
   "kubectl rollout status deployment/argocd-server -n argocd --timeout=300s" \
   "echo '✅ ArgoCD installed OK'"
+
 
 # Install NVIDIA Device Plugin
 ssm_run 120 "Install NVIDIA Device Plugin" \
@@ -91,8 +116,7 @@ echo "  IRSA: ${IRSA_ROLE_ARN}"
 echo "  DB:   ${DB_HOST}"
 echo "  S3:   ${S3_BUCKET}"
 
-
-# Render MLflow values.yaml TRÊN RUNNER (có đầy đủ biến môi trường)
+# Render MLflow values.yaml trên runner
 echo "🔧 Rendering MLflow values.yaml on runner..."
 MLFLOW_RENDERED=$(sed \
   -e "s|__IRSA_ROLE_ARN__|${IRSA_ROLE_ARN}|g" \
@@ -102,14 +126,12 @@ MLFLOW_RENDERED=$(sed \
   -e "s|__DB_PASS__|${MLFLOW_DB_PASSWORD}|g" \
   modules/mlflow/values.yaml)
 
-# Fail fast nếu còn placeholder chưa replace
 if echo "${MLFLOW_RENDERED}" | grep -qE '__[A-Z_]+__'; then
-  echo "❌ ERROR: values.yaml còn placeholder chưa replace:"
+  echo "❌ ERROR: mlflow values.yaml còn placeholder chưa replace:"
   echo "${MLFLOW_RENDERED}" | grep -E '__[A-Z_]+__'
   exit 1
 fi
-echo "✅ All placeholders replaced"
-
+echo "✅ MLflow placeholders replaced"
 MLFLOW_RENDERED_B64=$(echo "${MLFLOW_RENDERED}" | base64 -w 0)
 
 
@@ -117,7 +139,7 @@ MLFLOW_RENDERED_B64=$(echo "${MLFLOW_RENDERED}" | base64 -w 0)
 ssm_run 720 "Install MLflow" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace mlflow --dry-run=client -o yaml | kubectl apply -f -" \
-  "# Cleanup stale Helm release + ConfigMap + Secret trước khi install
+  "# FIX: Cleanup stale Helm release + ConfigMap + Secret trước khi install
    helm uninstall mlflow-server -n mlflow 2>/dev/null || true
    kubectl delete configmap mlflow-server-env-configmap -n mlflow 2>/dev/null || true
    kubectl delete configmap mlflow-server-migrations    -n mlflow 2>/dev/null || true
@@ -148,8 +170,6 @@ ssm_run 720 "Install MLflow" \
 
 
 # Install Monitoring (Prometheus + Grafana)
-# FIX 3: Đúng indent 2 spaces cho tất cả lệnh trong ssm_run
-# Create the grafana namespace before patching.
 ssm_run 900 "Install Monitoring" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true" \
@@ -162,7 +182,7 @@ ssm_run 900 "Install Monitoring" \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --wait --timeout 10m" \
   "kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -" \
-  "# FIX: patch --type=json, đúng indent, namespace grafana đã tồn tại
+  "# Remove managedFields (namespace grafana phải tồn tại trước)
    for r in secret/grafana configmap/grafana deployment/grafana role/grafana; do \
      kubectl patch \$r -n grafana \
        --type=json \
@@ -173,12 +193,11 @@ ssm_run 900 "Install Monitoring" \
      --type=json \
      -p '[{\"op\":\"remove\",\"path\":\"/metadata/managedFields\"}]' \
      2>/dev/null || true" \
-  "sed -e 's|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g' \
-       /tmp/helm-values/monitoring/grafana/values.yaml > /tmp/grafana-rendered.yaml" \
-  "helm upgrade --install grafana grafana/grafana \
+  "# FIX: values.yaml đã được rendered trên runner và upload sẵn — dùng trực tiếp, không cần sed
+   helm upgrade --install grafana grafana/grafana \
     --namespace grafana \
     --version '7.3.0' \
-    --values /tmp/grafana-rendered.yaml \
+    --values /tmp/helm-values/monitoring/grafana/values.yaml \
     --set adminPassword='${GRAFANA_ADMIN_PASSWORD}' \
     --wait --timeout 5m" \
   "echo '✅ Monitoring Stack installed OK'"
@@ -200,22 +219,21 @@ ssm_run 60 "Cloudflare: Create Secret" \
   "echo '✅ Secret cloudflared-cloudflare-tunnel verified'"
 
 
-# Cloudflare Step 2: Render values + Helm install
+# ─────────────────────────────────────────────────────────────────────────────
+# Cloudflare Step 2: Upload rendered values + Helm install
 ssm_run 300 "Cloudflare: Helm Install" \
   "${AWS_ENV_EXPORT}" \
-  "# FIX: patch --type=json, đúng indent, chạy trên bastion (không phải runner)
+  "# Remove managedFields nếu resource đã tồn tại
    for r in configmap/cloudflared-cloudflare-tunnel deployment/cloudflared-cloudflare-tunnel; do \
      kubectl patch \$r -n cloudflare \
        --type=json \
        -p '[{\"op\":\"remove\",\"path\":\"/metadata/managedFields\"}]' \
        2>/dev/null || true; \
    done" \
-  "sed -e 's|__TUNNEL_ID__|${CLOUDFLARE_TUNNEL_ID}|g' \
-       -e 's|__ARGOCD_DOMAIN__|${ARGOCD_DOMAIN}|g' \
-       -e 's|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g' \
-       -e 's|__MLFLOW_DOMAIN__|${MLFLOW_DOMAIN}|g' \
-       /tmp/helm-values/cloudflare/values.yaml > /tmp/cloudflare-rendered.yaml" \
-  "cat /tmp/cloudflare-rendered.yaml" \
+  "# FIX: Decode rendered values (đã replace tất cả domain + tunnel ID trên runner)
+   echo '${CLOUDFLARE_RENDERED_B64}' | base64 -d > /tmp/cloudflare-rendered.yaml
+   echo '--- Rendered cloudflare values.yaml (verify) ---'
+   cat /tmp/cloudflare-rendered.yaml" \
   "helm repo add cloudflare https://cloudflare.github.io/helm-charts 2>/dev/null || true" \
   "helm repo update cloudflare" \
   "helm upgrade --install cloudflared cloudflare/cloudflare-tunnel \
