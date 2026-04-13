@@ -6,18 +6,24 @@ metadata:
   finalizers: []
 spec:
   project: platform
-  source:
-    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
-    targetRevision: dev
-    path: modules/monitoring/prometheus
-    helm:
-      releaseName: prometheus
-      valueFiles:
-        - prometheus-values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: 56.6.2
+      helm:
+        releaseName: prometheus
+        valueFiles:
+          - $values/modules/monitoring/prometheus/prometheus-values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

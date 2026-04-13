@@ -6,18 +6,24 @@ metadata:
   finalizers: []
 spec:
   project: platform
-  source:
-    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
-    targetRevision: dev
-    path: modules/mlflow
-    helm:
-      releaseName: mlflow-server   # khớp với helm install trong phase2
-      valueFiles:
-        - values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: mlflow
+  sources:
+    - repoURL: https://community-charts.github.io/helm-charts
+      chart: mlflow
+      targetRevision: 0.7.19
+      helm:
+        releaseName: mlflow-server
+        valueFiles:
+          - $values/modules/mlflow/values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -29,7 +35,7 @@ spec:
         - /spec/replicas
     - group: ""
       kind: Secret
-      name: mlflow-server-env-secret          # config secret
+      name: mlflow-server-env-secret
       jsonPointers:
         - /data
     - group: ""

@@ -6,18 +6,24 @@ metadata:
   finalizers: []
 spec:
   project: platform
-  source:
-    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
-    targetRevision: dev
-    path: modules/cloudflare
-    helm:
-      releaseName: cloudflared
-      valueFiles:
-        - cloudflare-values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: cloudflare
+  sources:
+    - repoURL: https://cloudflare.github.io/helm-charts
+      chart: cloudflare-tunnel
+      targetRevision: "*"
+      helm:
+        releaseName: cloudflared
+        valueFiles:
+          - $values/modules/cloudflare/cloudflare-values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
