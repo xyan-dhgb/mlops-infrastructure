@@ -68,27 +68,18 @@ ssm_run 60 "Configure kubectl" \
 
 
 # Install ArgoCD
+# FIX: Removed useless kubectl patch managedFields (Kubernetes rejects json-patch on managedFields).
+# Using --force-conflicts instead: Helm will reclaim ownership of conflicting fields from argocd-controller.
 ssm_run 900 "Install ArgoCD" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "helm repo update argo" \
   "kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -" \
-  "# Remove managedFields (namespace must exist first)
-   for r in \
-     secret/argocd-notifications-secret \
-     deployment/argocd-applicationset-controller \
-     deployment/argocd-server \
-     deployment/argocd-repo-server \
-     deployment/argocd-dex-server; do \
-     kubectl patch \$r -n argocd \
-       --type=json \
-       -p '[{\"op\":\"remove\",\"path\":\"/metadata/managedFields\"}]' \
-       2>/dev/null || true; \
-   done" \
   "helm upgrade --install argocd argo/argo-cd \
     --namespace argocd \
     --version '7.5.2' \
     --values /tmp/helm-values/argocd/values.yaml \
+    --force-conflicts \
     --wait --timeout 10m" \
   "kubectl rollout status deployment/argocd-server -n argocd --timeout=300s" \
   "echo '✅ ArgoCD installed OK'"
@@ -221,16 +212,14 @@ ssm_run 60 "Cloudflare: Create Secret" \
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cloudflare Step 2: Upload rendered values + Helm install
+# FIX: Uninstall stale release first (có thể đang chứa config cũ với placeholder domain chưa replace).
+# FIX: Removed useless kubectl patch managedFields — dùng --force-conflicts để Helm reclaim ownership.
 ssm_run 300 "Cloudflare: Helm Install" \
   "${AWS_ENV_EXPORT}" \
-  "# Remove managedFields nếu resource đã tồn tại
-   for r in configmap/cloudflared-cloudflare-tunnel deployment/cloudflared-cloudflare-tunnel; do \
-     kubectl patch \$r -n cloudflare \
-       --type=json \
-       -p '[{\"op\":\"remove\",\"path\":\"/metadata/managedFields\"}]' \
-       2>/dev/null || true; \
-   done" \
-  "# FIX: Decode rendered values (đã replace tất cả domain + tunnel ID trên runner)
+  "# Xóa release cũ (nếu có) để đảm bảo config mới được apply hoàn toàn
+   helm uninstall cloudflared -n cloudflare 2>/dev/null || true
+   sleep 5" \
+  "# Decode rendered values (đã replace tất cả domain + tunnel ID trên runner)
    echo '${CLOUDFLARE_RENDERED_B64}' | base64 -d > /tmp/cloudflare-rendered.yaml
    echo '--- Rendered cloudflare values.yaml (verify) ---'
    cat /tmp/cloudflare-rendered.yaml" \
@@ -239,6 +228,7 @@ ssm_run 300 "Cloudflare: Helm Install" \
   "helm upgrade --install cloudflared cloudflare/cloudflare-tunnel \
     --namespace cloudflare \
     --values /tmp/cloudflare-rendered.yaml \
+    --force-conflicts \
     --wait --timeout 5m" \
   "kubectl rollout status deployment/cloudflared -n cloudflare --timeout=120s" \
   "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflare-tunnel --tail=5 2>/dev/null || true" \
