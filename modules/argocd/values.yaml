@@ -16,3 +16,13 @@ repoServer:
 
 applicationSet:
   replicas: 1
+
+configs:
+  cm:
+    # FIX: Kubernetes 1.28+ added .status.terminatingReplicas to StatefulSet.
+    # ArgoCD 7.5.2 schema does not declare this field → ComparisonError with ServerSideApply.
+    # Global ignoreDifferences here fixes it at the comparison algorithm level
+    # (Application-level ignoreDifferences is applied AFTER comparison and cannot fix this).
+    resource.customizations.ignoreDifferences.apps_StatefulSet: |
+      jqPathExpressions:
+      - .status.terminatingReplicas
