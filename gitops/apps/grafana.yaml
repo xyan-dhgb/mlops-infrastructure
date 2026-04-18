@@ -22,7 +22,7 @@ spec:
   syncPolicy:
     automated:
       prune: false
-      selfHeal: false   # Tắt selfHeal — Grafana hash lại admin-password, sẽ gây HealthLoop nếu bật
+      selfHeal: false   # Disable selfHeal: Grafana will re-hash the admin password; enabling it will cause a Health Loop
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
