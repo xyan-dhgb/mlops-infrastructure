@@ -25,7 +25,7 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true    # REQUIRED: Prometheus CRDs exceed 262144 bytes annotation limit
       - RespectIgnoreDifferences=true
   ignoreDifferences:
     - group: apps

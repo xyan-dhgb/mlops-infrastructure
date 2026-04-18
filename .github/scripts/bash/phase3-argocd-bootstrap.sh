@@ -34,12 +34,15 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
   "kubectl apply -f /tmp/app-of-apps.yaml" \
   "echo '✅ AppProject and App-of-Apps applied to cluster'" \
   \
-  "# 3. Wait for ArgoCD server to be fully ready (argocd-cm must exist before CLI commands)
+  "# 3. Wait for ArgoCD server to be fully ready
    echo '⏳ Waiting for ArgoCD server to be ready...'
    kubectl rollout status deployment/argocd-server -n argocd --timeout=180s
    until kubectl get configmap argocd-cm -n argocd 2>/dev/null; do
      echo '⏳ Waiting for argocd-cm configmap...'; sleep 5
    done
+   # IMPORTANT: argocd --core reads argocd-cm from the kubectl context default namespace.
+   # Must set namespace to 'argocd' or CLI will fail with 'configmap not found'.
+   kubectl config set-context --current --namespace=argocd
    echo '✅ ArgoCD ready'" \
   \
   "# 4. Wait for App-of-Apps to become healthy before syncing child apps" \
