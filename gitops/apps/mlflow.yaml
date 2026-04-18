@@ -22,7 +22,7 @@ spec:
   syncPolicy:
     automated:
       prune: false
-      selfHeal: false   # Tắt selfHeal — configmap/secret chứa runtime values inject từ phase2
+      selfHeal: false   # Disable selfHeal: configmap/secret contains runtime values ​​injected from phase 2
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
