@@ -20,9 +20,8 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
-    automated:
-      prune: false
-      selfHeal: false   # Tắt selfHeal — Grafana hash lại admin-password, sẽ gây HealthLoop nếu bật
+    # No automated sync: grafana values file in Git contains __GRAFANA_DOMAIN__ placeholder.
+    # Rendered values are applied by phase2 only. ArgoCD is used for health monitoring only.
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true

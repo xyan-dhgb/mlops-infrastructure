@@ -20,9 +20,9 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
-    automated:
-      prune: false
-      selfHeal: false   # Tắt selfHeal — configmap/secret chứa runtime values inject từ phase2
+    # No automated sync: mlflow values file in Git contains runtime placeholders
+    # (__IRSA_ROLE_ARN__, __DB_HOST__, __DB_PASS__, etc.) rendered by phase2 only.
+    # Syncing from Git would break DB/S3 connectivity. ArgoCD is used for health monitoring only.
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
