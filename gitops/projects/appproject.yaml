@@ -1,3 +1,5 @@
+# approject is about security boundary, define what can be done
+# IAM Policy / Namespace in EKS
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
