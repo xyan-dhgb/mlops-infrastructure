@@ -20,9 +20,13 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false   # Tắt selfHeal — credentials.json inject từ phase2, không sync từ Git
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
   ignoreDifferences:
     - group: apps
       kind: Deployment

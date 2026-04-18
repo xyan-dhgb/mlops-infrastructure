@@ -20,9 +20,13 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false   # Tắt selfHeal — Grafana hash lại admin-password, sẽ gây HealthLoop nếu bật
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
   ignoreDifferences:
     - group: apps
       kind: Deployment
