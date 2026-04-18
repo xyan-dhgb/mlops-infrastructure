@@ -32,18 +32,26 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
   "kubectl apply -f /tmp/app-of-apps.yaml" \
   "echo '✅ AppProject and App-of-Apps applied to cluster'" \
   \
-  "# Wait for App-of-Apps to initialize" \
-  "sleep 5" \
+  "# Wait for App-of-Apps to become healthy before syncing child apps" \
+  "argocd app wait k8s-infra-addons --health --core --timeout 60 \
+     || echo '⚠️ App-of-Apps not yet healthy, continuing anyway...'" \
   \
   "# 3. Sync App-of-Apps first to populate child apps" \
   "echo '🔄 Syncing k8s-infra-addons...'" \
   "argocd app sync k8s-infra-addons --core" \
-  "argocd app wait k8s-infra-addons --sync --core --timeout 120 || echo '⚠️ Wait timeout, but sync triggered'" \
+  "argocd app wait k8s-infra-addons --synced --core --timeout 120 || echo '⚠️ Wait timeout, but sync triggered'" \
   \
-  "# 4. Sync child apps created by App-of-Apps
+  "# 4. Verify child apps exist before syncing
+   echo '🔍 Listing child apps created by App-of-Apps...'
+   argocd app list --core -l app.kubernetes.io/instance=k8s-infra-addons \
+     || echo '⚠️ No child apps found yet — auto-sync will handle'" \
+  "# 5. Sync child apps
    echo '🔄 Syncing all child apps...'
    argocd app sync -l app.kubernetes.io/instance=k8s-infra-addons --core \
-     || echo '✅ Auto-sync will handle the rest'" \
-  "echo '🎉 All apps synced successfully'"
+     || echo '⚠️ Some child apps may still be syncing via auto-sync'" \
+  "# 6. Final status check
+   echo '📋 Final status of all ArgoCD apps:'
+   argocd app list --core" \
+  "echo '🎉 ArgoCD Bootstrap completed successfully'"
 
 echo "🚀 ArgoCD Bootstrap Phase completed successfully!"
