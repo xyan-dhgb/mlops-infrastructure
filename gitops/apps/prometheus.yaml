@@ -32,6 +32,8 @@ spec:
       kind: StatefulSet
       jsonPointers:
         - /spec/replicas
+      jqPathExpressions:
+        - .status.terminatingReplicas  # Kubernetes 1.28+ field, not in ArgoCD 7.5.2 schema → ComparisonError with SSA
     - group: monitoring.coreos.com
       kind: PrometheusRule
       jsonPointers:

@@ -55,10 +55,16 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
   "argocd app wait k8s-infra-addons --operation --core --timeout 120 \
      || echo '⚠️ Wait timeout, but sync triggered'" \
   \
-  "# 6. Verify child apps exist before syncing
-   echo '🔍 Listing child apps created by App-of-Apps...'
+  "# 6. Wait for child apps to be created by App-of-Apps
+   echo '⏳ Waiting for child apps to appear...'
+   for i in \$(seq 1 18); do
+     count=\$(argocd app list --core -l app.kubernetes.io/instance=k8s-infra-addons 2>/dev/null | tail -n +2 | wc -l || echo 0)
+     echo \"  [\$((i*10))s] Child apps found: \${count}\"
+     [ \"\${count}\" -gt 0 ] && break
+     sleep 10
+   done
    argocd app list --core -l app.kubernetes.io/instance=k8s-infra-addons \
-     || echo '⚠️ No child apps found yet — auto-sync will handle'" \
+     || echo '⚠️ No child apps found — auto-sync will handle'" \
   \
   "# 7. Sync child apps
    echo '🔄 Syncing all child apps...'
