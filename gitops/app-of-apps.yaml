@@ -1,3 +1,5 @@
+# This file defines Workload, define what to do
+# Deployment / Pod in EKS
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -24,3 +26,4 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
