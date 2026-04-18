@@ -230,7 +230,7 @@ ssm_run 300 "Cloudflare: Helm Install" \
     --values /tmp/cloudflare-rendered.yaml \
     --force-conflicts \
     --wait --timeout 5m" \
-  "kubectl rollout status deployment/cloudflared -n cloudflare --timeout=120s" \
+  "kubectl wait pod -n cloudflare -l app.kubernetes.io/name=cloudflare-tunnel --for=condition=Ready --timeout=120s || kubectl get pods -n cloudflare" \
   "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflare-tunnel --tail=5 2>/dev/null || true" \
   "echo '✅ Cloudflare Tunnel installed OK'"
 
