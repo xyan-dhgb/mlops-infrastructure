@@ -20,9 +20,13 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false   # Tắt selfHeal — configmap/secret chứa runtime values inject từ phase2
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
   ignoreDifferences:
     - group: apps
       kind: Deployment
