@@ -1,7 +1,9 @@
 # ArgoCD Controller Ownership
 
 **Date:** 2026-04-18  
+
 **Severity:** High: Kubernetes Server-Side Apply (SSA) - argocd-controller đã "chiếm ownership" các field trước, khi Helm upgrade sẽ bị reject ngay lập tức, báo lỗi như ở [Lỗi 1](#lỗi-1--argocd-helm-upgrade-bị-conflict-field-ownership-của-argocd-controller)
+
 **Status:** ✅ Resolved
 
 # Bug 1: ArgoCD Helm Upgrade bị conflict (field ownership của `argocd-controller`)
