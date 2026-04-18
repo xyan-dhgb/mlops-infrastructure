@@ -55,21 +55,21 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
   "argocd app wait k8s-infra-addons --operation --core --timeout 120 \
      || echo '⚠️ Wait timeout, but sync triggered'" \
   \
-  "# 6. Wait for child apps to be created by App-of-Apps
+  "# 6. Wait for child apps to be created by App-of-Apps (check via kubectl, not argocd --core label selector)
    echo '⏳ Waiting for child apps to appear...'
    for i in \$(seq 1 18); do
-     count=\$(argocd app list --core -l app.kubernetes.io/instance=k8s-infra-addons 2>/dev/null | tail -n +2 | wc -l || echo 0)
+     count=\$(kubectl get applications -n argocd --no-headers 2>/dev/null | grep -v k8s-infra-addons | wc -l || echo 0)
      echo \"  [\$((i*10))s] Child apps found: \${count}\"
      [ \"\${count}\" -gt 0 ] && break
      sleep 10
    done
-   argocd app list --core -l app.kubernetes.io/instance=k8s-infra-addons \
-     || echo '⚠️ No child apps found — auto-sync will handle'" \
+   echo '📋 Child apps currently in cluster:'
+   kubectl get applications -n argocd" \
   \
-  "# 7. Sync child apps
-   echo '🔄 Syncing all child apps...'
-   argocd app sync -l app.kubernetes.io/instance=k8s-infra-addons --core \
-     || echo '⚠️ Some child apps may still be syncing via auto-sync'" \
+  "# 7. Sync apps with automated policy by name (label selector not reliable with --core mode)
+   echo '🔄 Syncing argocd and prometheus...'
+   argocd app sync argocd --core || echo '⚠️ argocd sync skipped or already synced'
+   argocd app sync prometheus --core || echo '⚠️ prometheus sync skipped or already synced'" \
   \
   "# 8. Final status check
    echo '📋 Final status of all ArgoCD apps:'
