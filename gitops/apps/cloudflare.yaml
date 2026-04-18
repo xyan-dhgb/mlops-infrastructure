@@ -20,9 +20,9 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
-    automated:
-      prune: false
-      selfHeal: false   # Tắt selfHeal — credentials.json inject từ phase2, không sync từ Git
+    # No automated sync: cloudflare tunnel is bootstrapped by phase2 (Helm with rendered values).
+    # Values file in Git contains placeholders (__TUNNEL_ID__, __ARGOCD_DOMAIN__, etc.)
+    # and must NOT be applied by ArgoCD. ArgoCD is used for health monitoring only.
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
