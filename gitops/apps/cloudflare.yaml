@@ -22,7 +22,7 @@ spec:
   syncPolicy:
     automated:
       prune: false
-      selfHeal: false   # Tắt selfHeal — credentials.json inject từ phase2, không sync từ Git
+      selfHeal: false   # Disable selfHeal: Inject credentials.json from phase2, do not sync from Git
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
