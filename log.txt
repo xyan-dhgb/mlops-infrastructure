@@ -1,0 +1,8 @@
+{"execID":"0209a","level":"error","msg":"`helm version --client --short` failed exit status 1: Error: unknown flag: --client","time":"2026-04-18T15:37:35Z"}
+{"execID":"17da6","level":"error","msg":"`helm version --client --short` failed exit status 1: Error: unknown flag: --client","time":"2026-04-18T15:37:38Z"}
+{"level":"info","msg":"Warning: unknown field \"status.sourceHydrator\"","time":"2026-04-18T15:37:39Z"}
+{"execID":"a0f46","level":"error","msg":"`helm version --client --short` failed exit status 1: Error: unknown flag: --client","time":"2026-04-18T15:37:45Z"}
+{"execID":"293f2","level":"error","msg":"`helm version --client --short` failed exit status 1: Error: unknown flag: --client","time":"2026-04-18T15:37:48Z"}
+{"execID":"1b1ce","level":"error","msg":"`helm version --client --short` failed exit status 1: Error: unknown flag: --client","time":"2026-04-18T15:37:52Z"}
+{"level":"fatal","msg":"No matching apps found for filter: selector app.kubernetes.io/instance=k8s-infra-addons","time":"2026-04-18T15:37:52Z"}
+{"execID":"4001b","level":"error","msg":"`helm version --client --short` failed exit status 1: Error: unknown flag: --client","time":"2026-04-18T15:37:55Z"}
