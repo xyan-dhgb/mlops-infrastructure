@@ -11,6 +11,7 @@ AWS_ENV_EXPORT="export HOME=/root AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' \
 AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
 AWS_DEFAULT_REGION='${AWS_REGION}'"
 
+
 # Ensure target revision is set to dev (default branch) before applying
 echo "🔧 Enforcing targetRevision to 'dev' in app-of-apps.yaml..."
 sed -i 's|targetRevision: .*|targetRevision: dev|g' gitops/app-of-apps.yaml
@@ -18,6 +19,7 @@ sed -i 's|targetRevision: .*|targetRevision: dev|g' gitops/app-of-apps.yaml
 echo "📦 Encoding GitOps manifests..."
 APPPROJECT_B64=$(base64 -w 0 gitops/projects/appproject.yaml)
 APPOFAPPS_B64=$(base64 -w 0 gitops/app-of-apps.yaml)
+
 
 # Send commands to Bastion Host via SSM
 ssm_run 300 "Bootstrap ArgoCD GitOps" \
@@ -32,26 +34,39 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
   "kubectl apply -f /tmp/app-of-apps.yaml" \
   "echo '✅ AppProject and App-of-Apps applied to cluster'" \
   \
-  "# Wait for App-of-Apps to become healthy before syncing child apps" \
+  "# 3. Wait for ArgoCD server to be fully ready (argocd-cm must exist before CLI commands)
+   echo '⏳ Waiting for ArgoCD server to be ready...'
+   kubectl rollout status deployment/argocd-server -n argocd --timeout=180s
+   until kubectl get configmap argocd-cm -n argocd 2>/dev/null; do
+     echo '⏳ Waiting for argocd-cm configmap...'; sleep 5
+   done
+   echo '✅ ArgoCD ready'" \
+  \
+  "# 4. Wait for App-of-Apps to become healthy before syncing child apps" \
   "argocd app wait k8s-infra-addons --health --core --timeout 60 \
      || echo '⚠️ App-of-Apps not yet healthy, continuing anyway...'" \
   \
-  "# 3. Sync App-of-Apps first to populate child apps" \
+  "# 5. Sync App-of-Apps to populate child apps" \
   "echo '🔄 Syncing k8s-infra-addons...'" \
   "argocd app sync k8s-infra-addons --core" \
-  "argocd app wait k8s-infra-addons --synced --core --timeout 120 || echo '⚠️ Wait timeout, but sync triggered'" \
+  "argocd app wait k8s-infra-addons --operation --core --timeout 120 \
+     || echo '⚠️ Wait timeout, but sync triggered'" \
   \
-  "# 4. Verify child apps exist before syncing
+  "# 6. Verify child apps exist before syncing
    echo '🔍 Listing child apps created by App-of-Apps...'
    argocd app list --core -l app.kubernetes.io/instance=k8s-infra-addons \
      || echo '⚠️ No child apps found yet — auto-sync will handle'" \
-  "# 5. Sync child apps
+  \
+  "# 7. Sync child apps
    echo '🔄 Syncing all child apps...'
    argocd app sync -l app.kubernetes.io/instance=k8s-infra-addons --core \
      || echo '⚠️ Some child apps may still be syncing via auto-sync'" \
-  "# 6. Final status check
+  \
+  "# 8. Final status check
    echo '📋 Final status of all ArgoCD apps:'
    argocd app list --core" \
+  \
   "echo '🎉 ArgoCD Bootstrap completed successfully'"
+
 
 echo "🚀 ArgoCD Bootstrap Phase completed successfully!"
