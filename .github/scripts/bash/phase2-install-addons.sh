@@ -13,12 +13,13 @@ AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
 AWS_DEFAULT_REGION='${AWS_REGION}'"
 
 
-# RUNNER-SIDE: Encode / render all values files before uploading to bastion
+# RUNNER-SIDE: Encode / render all Helm values files
 echo "📦 Encoding Helm values files..."
 ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
 MLFLOW_B64=$(base64 -w 0 modules/mlflow/values.yaml)
 PROM_B64=$(base64  -w 0 modules/monitoring/prometheus/prometheus-values.yaml)
 CLOUDFLARE_CREDS_B64=$(echo "${CLOUDFLARE_TUNNEL_CREDENTIALS}" | base64 -w 0)
+NVIDIA_PLUGIN_VALUES_B64=$(base64 -w 0 modules/eks/manifests/nvidia-device-plugin-values.yaml)
 
 # FIX: Render Grafana values on runner
 echo "🔧 Rendering Grafana values.yaml on runner..."
@@ -50,14 +51,15 @@ echo "✅ Cloudflare placeholders replaced"
 CLOUDFLARE_RENDERED_B64=$(echo "${CLOUDFLARE_RENDERED}" | base64 -w 0)
 
 
-# Upload tất cả Helm values lên bastion (đã render đầy đủ)
+# Upload tất cả Helm values lên bastion
 ssm_run 30 "Upload Helm values" \
-  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana /tmp/helm-values/cloudflare" \
+  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana /tmp/helm-values/cloudflare /tmp/helm-values/eks" \
   "echo '${ARGOCD_B64}'   | base64 -d > /tmp/helm-values/argocd/values.yaml" \
   "echo '${MLFLOW_B64}'   | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
   "echo '${PROM_B64}'     | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
   "echo '${GRAFANA_B64}'  | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml" \
-  "echo 'Values uploaded OK'"
+  "echo '${NVIDIA_PLUGIN_VALUES_B64}' | base64 -d > /tmp/helm-values/eks/nvidia-device-plugin-values.yaml" \
+  "echo 'Helm values uploaded OK'"
 
 
 # Configure kubectl on bastion
@@ -88,8 +90,15 @@ ssm_run 900 "Install ArgoCD" \
 # Install NVIDIA Device Plugin
 ssm_run 120 "Install NVIDIA Device Plugin" \
   "${AWS_ENV_EXPORT}" \
-  "kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/deployments/static/nvidia-device-plugin.yml" \
-  "echo '✅ NVIDIA Device Plugin applied'"
+  "helm repo add nvdp https://nvidia.github.io/k8s-device-plugin 2>/dev/null || true" \
+  "helm repo update nvdp" \
+  "helm upgrade --install nvidia-device-plugin nvdp/nvidia-device-plugin \
+    --namespace kube-system \
+    --version '0.17.1' \
+    --values /tmp/helm-values/eks/nvidia-device-plugin-values.yaml \
+    --wait --timeout 5m" \
+  "helm status nvidia-device-plugin -n kube-system" \
+  "echo '✅ NVIDIA Device Plugin installed via Helm'"
 
 
 # Fetch MLflow config từ AWS (chạy trên runner — có IAM permissions)
@@ -238,6 +247,8 @@ ssm_run 300 "Cloudflare: Helm Install" \
 # Verify all add-ons
 ssm_run 60 "Verify add-ons" \
   "${AWS_ENV_EXPORT}" \
+  "helm status nvidia-device-plugin -n kube-system" \
+  "kubectl get pods -n kube-system -o wide | grep nvidia-device-plugin || true" \
   "kubectl get pods -n argocd" \
   "kubectl get pods -n mlflow" \
   "kubectl get pods -n prometheus" \
