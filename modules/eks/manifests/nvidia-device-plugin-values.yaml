@@ -1,0 +1,25 @@
+failOnInitError: false
+
+priorityClassName: system-node-critical
+
+nodeSelector:
+  role: ml-pipeline
+
+tolerations:
+  # This pod is allowed to run on nodes that contain a GPU
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+  
+  # This pod is allowed to run on nodes dedicated to Machine Learning work
+  - key: workload
+    operator: Equal
+    value: ml
+    effect: NoSchedule
+
+# Disable the chart's default GPU/NFD affinity so scheduling is driven
+# by our dedicated ML node label and taint configuration.
+affinity: {}
+
+gfd:
+  enabled: false
