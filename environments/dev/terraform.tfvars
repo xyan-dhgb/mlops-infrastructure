@@ -25,8 +25,8 @@ bastion_allowed_ssh_cidr = "0.0.0.0/0"
 # Machine Learning Node Configuration (GPU for EfficientNet-B3 + XRAI training)
 ml_node_instance_types = ["g4dn.xlarge"] # NVIDIA T4 16GB VRAM — EfficientNet-B3 + XRAI
 ml_node_capacity_type  = "ON_DEMAND"
-ml_node_min_size       = 0 # Scale-to-zero when not training
+ml_node_min_size       = 1 # Scale-to-zero when not training
 ml_node_max_size       = 2
-ml_node_desired_size   = 0 # Cluster Autoscaler will scale up when there is a job
+ml_node_desired_size   = 1 # Cluster Autoscaler will scale up when there is a job
 
 domain_name = "kltn-argocd-ui.me"
