@@ -41,6 +41,15 @@ datasources:
       access: proxy
       isDefault: true
       editable: false
+    - name: Alertmanager
+      uid: alertmanager
+      type: alertmanager
+      url: http://prometheus-kube-prometheus-alertmanager.prometheus.svc.cluster.local:9093
+      access: proxy
+      editable: false
+      jsonData:
+        implementation: prometheus
+        handleGrafanaManagedAlerts: false
 
 grafana.ini:
   server:
