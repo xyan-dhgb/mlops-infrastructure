@@ -72,6 +72,8 @@ jobs:
           ARGOCD_DOMAIN: ${{ secrets.ARGOCD_DOMAIN }}
           GRAFANA_DOMAIN: ${{ secrets.GRAFANA_DOMAIN }}
           MLFLOW_DOMAIN: ${{ secrets.MLFLOW_DOMAIN }}
+          ALERT_SMTP_USERNAME: ${{ secrets.ALERT_SMTP_USERNAME }}
+          ALERT_SMTP_PASSWORD: ${{ secrets.ALERT_SMTP_PASSWORD }}
 
       # Summary
       - name: Post bootstrap summary

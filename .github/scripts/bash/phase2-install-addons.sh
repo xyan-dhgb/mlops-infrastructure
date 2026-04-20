@@ -16,10 +16,28 @@ AWS_DEFAULT_REGION='${AWS_REGION}'"
 echo "📦 Encoding Helm values files..."
 ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
 MLFLOW_B64=$(base64 -w 0 modules/mlflow/values.yaml)
-PROM_B64=$(base64 -w 0 modules/monitoring/prometheus/prometheus-values.yaml)
 GRAFANA_DASHBOARDS_B64=$(tar -C modules/monitoring/grafana -czf - dashboards | base64 -w 0)
+PROM_RULES_B64=$(base64 -w 0 modules/monitoring/prometheus/rules/eks-alerts.yaml)
 CLOUDFLARE_CREDS_B64=$(echo "${CLOUDFLARE_TUNNEL_CREDENTIALS}" | base64 -w 0)
 NVIDIA_PLUGIN_VALUES_B64=$(base64 -w 0 modules/eks/manifests/nvidia-device-plugin-values.yaml)
+
+# Render Prometheus values on the runner.
+echo "📇 Rendering Prometheus values.yaml on the runner"
+if [[ -z "${ALERT_SMTP_USERNAME:-}" || -z "${ALERT_SMTP_PASSWORD:-}" ]]; then
+  echo "❌ ERROR: ALERT_SMTP_USERNAME and ALERT_SMTP_PASSWORD secrets are required for Alertmanager email delivery."
+  exit 1
+fi
+PROM_RENDERED=$(sed \
+  -e "s|__ALERT_SMTP_USERNAME__|${ALERT_SMTP_USERNAME}|g" \
+  -e "s|__ALERT_SMTP_PASSWORD__|${ALERT_SMTP_PASSWORD}|g" \
+  modules/monitoring/prometheus/prometheus-values.yaml)
+if echo "${PROM_RENDERED}" | grep -qE '__[A-Z_]+__'; then
+  echo "❌ ERROR: prometheus-values.yaml still contains unresolved placeholders:"
+  echo "${PROM_RENDERED}" | grep -E '__[A-Z_]+__'
+  exit 1
+fi
+echo "✅ Prometheus placeholders replaced"
+PROM_B64=$(echo "${PROM_RENDERED}" | base64 -w 0)
 
 # Render Grafana values on the runner.
 echo "📇 Rendering Grafana values.yaml on the runner"
@@ -53,10 +71,11 @@ CLOUDFLARE_RENDERED_B64=$(echo "${CLOUDFLARE_RENDERED}" | base64 -w 0)
 
 # Upload all Helm values to the bastion.
 ssm_run 30 "🔗 Upload Helm values" \
-  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus /tmp/helm-values/monitoring/grafana /tmp/helm-values/cloudflare /tmp/helm-values/eks" \
+  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/cloudflare /tmp/helm-values/eks" \
   "echo '${ARGOCD_B64}' | base64 -d > /tmp/helm-values/argocd/values.yaml" \
   "echo '${MLFLOW_B64}' | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
   "echo '${PROM_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
+  "echo '${PROM_RULES_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml" \
   "echo '${GRAFANA_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml" \
   "echo '${GRAFANA_DASHBOARDS_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/dashboards.tgz" \
   "tar -xzf /tmp/helm-values/monitoring/grafana/dashboards.tgz -C /tmp/helm-values/monitoring/grafana" \
@@ -181,6 +200,8 @@ ssm_run 900 "⚙️ Install Monitoring" \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --wait --timeout 10m" \
+  "kubectl apply -f /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml" \
+  "kubectl get prometheusrule eks-alerts -n prometheus" \
   "kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -" \
   "# Rebuild Grafana dashboard ConfigMaps from repo-managed JSON files
    kubectl delete configmap -n grafana -l grafana_dashboard=1 --ignore-not-found
