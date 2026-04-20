@@ -61,6 +61,13 @@ variable "node_max_size" {
   type        = number
 }
 
+# Optional ML Pipeline Node Group toggle
+variable "enable_ml_node_group" {
+  description = "Whether to create the optional ML pipeline node group"
+  type        = bool
+  default     = true
+}
+
 # ML Pipeline Node Group
 variable "ml_node_instance_types" {
   description = "EC2 instance types for ML pipeline nodes (GPU recommended for EfficientNet training)"

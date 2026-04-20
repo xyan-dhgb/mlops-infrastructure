@@ -137,6 +137,7 @@ resource "aws_iam_openid_connect_provider" "eks" {
 }
 
 resource "aws_eks_node_group" "ml_nodes" {
+  count           = var.enable_ml_node_group ? 1 : 0
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "${local.cluster_name}-ml-node-group"
   node_role_arn   = aws_iam_role.worker_nodes_role.arn
