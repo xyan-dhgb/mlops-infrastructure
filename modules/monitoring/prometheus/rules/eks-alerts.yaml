@@ -1,0 +1,57 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: eks-alerts
+  namespace: prometheus
+  labels:
+    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus-stack
+spec:
+  groups:
+    - name: eks-cluster-health
+      rules:
+        - alert: EKSNodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 10m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "EKS node is NotReady"
+            description: "Node {{ $labels.node }} has remained NotReady for at least 10 minutes."
+        - alert: EKSHighClusterCPU
+          expr: 100 * sum(rate(container_cpu_usage_seconds_total{container!="POD",container!="",image!=""}[5m])) / sum(kube_node_status_capacity{resource="cpu",unit="core"}) > 85
+          for: 15m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "EKS cluster CPU usage is high"
+            description: "Cluster CPU usage has been above 85% for at least 15 minutes."
+        - alert: EKSHighClusterMemory
+          expr: 100 * sum(container_memory_working_set_bytes{container!="POD",container!="",image!=""}) / sum(kube_node_status_capacity{resource="memory",unit="byte"}) > 90
+          for: 15m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "EKS cluster memory usage is high"
+            description: "Cluster memory usage has been above 90% for at least 15 minutes."
+        - alert: EKSDeploymentReplicasUnavailable
+          expr: kube_deployment_status_replicas_unavailable > 0
+          for: 10m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Deployment has unavailable replicas"
+            description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has unavailable replicas for at least 10 minutes."
+        - alert: EKSPodRestartsSpiking
+          expr: sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[15m])) > 3
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Pod restart count is spiking"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} restarted more than 3 times in the last 15 minutes."
