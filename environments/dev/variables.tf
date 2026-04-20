@@ -68,6 +68,12 @@ variable "node_max_size" {
   type        = number
 }
 
+variable "enable_ml_node_group" {
+  description = "Whether to create the optional ML pipeline node group"
+  type        = bool
+  default     = false
+}
+
 # Bastion Host
 variable "bastion_ssh_key_name" {
   description = "Name of the EC2 Key Pair for Bastion Host SSH access"
@@ -89,6 +95,7 @@ variable "environment" {
 variable "ml_node_instance_types" {
   description = "EC2 instance types for ML pipeline nodes (GPU recommended)"
   type        = list(string)
+  default     = ["g4dn.xlarge"]
 }
 
 variable "ml_node_capacity_type" {
@@ -100,16 +107,19 @@ variable "ml_node_capacity_type" {
 variable "ml_node_desired_size" {
   description = "Desired number of ML pipeline nodes"
   type        = number
+  default     = 1
 }
 
 variable "ml_node_min_size" {
   description = "Minimum number of ML pipeline nodes"
   type        = number
+  default     = 1
 }
 
 variable "ml_node_max_size" {
   description = "Maximum number of ML pipeline nodes"
   type        = number
+  default     = 2
 }
 
 variable "domain_name" {
