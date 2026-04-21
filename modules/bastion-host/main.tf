@@ -76,6 +76,8 @@ resource "aws_iam_role_policy_attachment" "bastion_ssm" {
 
 data "aws_region" "current" {}
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_iam_instance_profile" "bastion_ssm" {
   name = "${var.bastion_name}-ssm-profile"
   role = aws_iam_role.bastion_ssm.name
@@ -124,6 +126,26 @@ resource "aws_iam_role_policy" "bastion_eks_readonly" {
           "ec2:DescribeRouteTables"  # debug network
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "SNSReadOnly"
+        Effect = "Allow"
+        Action = [
+          "sns:ListTopics",
+          "sns:ListSubscriptions",
+          "sns:ListSubscriptionsByTopic"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "SNSAlertTopicAccess"
+        Effect = "Allow"
+        Action = [
+          "sns:GetTopicAttributes",
+          "sns:Subscribe",
+          "sns:Publish"
+        ]
+        Resource = "arn:aws:sns:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:mlops-eks-alerts-*"
       }
     ]
   })

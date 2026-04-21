@@ -94,6 +94,13 @@ ssm_run 30 "🔗 Upload Helm values" \
   "echo '${GRAFANA_DASHBOARDS_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/dashboards.tgz" \
   "tar -xzf /tmp/helm-values/monitoring/grafana/dashboards.tgz -C /tmp/helm-values/monitoring/grafana" \
   "echo '${NVIDIA_PLUGIN_VALUES_B64}' | base64 -d > /tmp/helm-values/eks/nvidia-device-plugin-values.yaml" \
+  "if grep -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/values.yaml; then
+     echo '❌ ERROR: Uploaded Prometheus values still contain unresolved placeholders'
+     grep -E '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/values.yaml
+     exit 1
+   fi" \
+  "echo '--- Rendered Prometheus SNS config (verify) ---'" \
+  "grep -E 'role-arn:|topic_arn:|region:' /tmp/helm-values/monitoring/prometheus/values.yaml" \
   "echo '✅ Helm values uploaded OK'"
 
 
@@ -214,6 +221,17 @@ ssm_run 900 "⚙️ Install Monitoring" \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --wait --timeout 10m" \
+  "echo '--- Verifying Alertmanager secret after Helm install ---'
+   kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager \
+     -n prometheus \
+     -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
+   grep -E 'topic_arn:|region:' /tmp/alertmanager-rendered.yaml
+   if grep -qE '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml; then
+     echo '❌ ERROR: Alertmanager secret still contains unresolved placeholders'
+     grep -E '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml
+     exit 1
+   fi
+   echo '✅ Alertmanager secret rendered correctly'" \
   "kubectl apply -f /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml" \
   "kubectl get prometheusrule eks-alerts -n prometheus" \
   "kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -" \
