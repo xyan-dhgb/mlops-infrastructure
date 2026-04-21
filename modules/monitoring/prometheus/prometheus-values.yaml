@@ -68,6 +68,7 @@ alertmanager:
           - topic_arn: __ALERT_SNS_TOPIC_ARN__
             sigv4:
               region: __AWS_REGION__
+            subject: '[EKS] {{ .CommonLabels.alertname }}'
             send_resolved: true
   alertmanagerSpec:
     # Ephemeral storage - no PVC/EBS
