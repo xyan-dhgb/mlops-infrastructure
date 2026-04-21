@@ -21,15 +21,29 @@ PROM_RULES_B64=$(base64 -w 0 modules/monitoring/prometheus/rules/eks-alerts.yaml
 CLOUDFLARE_CREDS_B64=$(echo "${CLOUDFLARE_TUNNEL_CREDENTIALS}" | base64 -w 0)
 NVIDIA_PLUGIN_VALUES_B64=$(base64 -w 0 modules/eks/manifests/nvidia-device-plugin-values.yaml)
 
+# Fetch monitoring config from AWS on the runner, where IAM permissions exist.
+ENVIRONMENT_NAME="${ENVIRONMENT:-dev}"
+ALERTMANAGER_IRSA_ROLE_NAME="mlops-alertmanager-sns-irsa-${ENVIRONMENT_NAME}"
+ALERT_SNS_TOPIC_NAME="mlops-eks-alerts-${ENVIRONMENT_NAME}"
+
+echo "🔎 Fetching Alertmanager SNS config from AWS..."
+ALERTMANAGER_IRSA_ROLE_ARN=$(aws iam get-role \
+  --role-name "${ALERTMANAGER_IRSA_ROLE_NAME}" \
+  --query "Role.Arn" --output text)
+
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+ALERT_SNS_TOPIC_ARN="arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${ALERT_SNS_TOPIC_NAME}"
+aws sns get-topic-attributes --topic-arn "${ALERT_SNS_TOPIC_ARN}" >/dev/null
+
+echo "  IRSA: ${ALERTMANAGER_IRSA_ROLE_ARN}"
+echo "  SNS:  ${ALERT_SNS_TOPIC_ARN}"
+
 # Render Prometheus values on the runner.
 echo "📇 Rendering Prometheus values.yaml on the runner"
-if [[ -z "${ALERT_SMTP_USERNAME:-}" || -z "${ALERT_SMTP_PASSWORD:-}" ]]; then
-  echo "❌ ERROR: ALERT_SMTP_USERNAME and ALERT_SMTP_PASSWORD secrets are required for Alertmanager email delivery."
-  exit 1
-fi
 PROM_RENDERED=$(sed \
-  -e "s|__ALERT_SMTP_USERNAME__|${ALERT_SMTP_USERNAME}|g" \
-  -e "s|__ALERT_SMTP_PASSWORD__|${ALERT_SMTP_PASSWORD}|g" \
+  -e "s|__ALERTMANAGER_IRSA_ROLE_ARN__|${ALERTMANAGER_IRSA_ROLE_ARN}|g" \
+  -e "s|__ALERT_SNS_TOPIC_ARN__|${ALERT_SNS_TOPIC_ARN}|g" \
+  -e "s|__AWS_REGION__|${AWS_REGION}|g" \
   modules/monitoring/prometheus/prometheus-values.yaml)
 if echo "${PROM_RENDERED}" | grep -qE '__[A-Z_]+__'; then
   echo "❌ ERROR: prometheus-values.yaml still contains unresolved placeholders:"
