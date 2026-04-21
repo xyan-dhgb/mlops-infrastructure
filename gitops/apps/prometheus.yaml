@@ -20,12 +20,12 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+    # No automated sync: prometheus values file in Git contains placeholders
+    # for SNS/IRSA that are rendered by phase2 during bootstrap.
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true    # REQUIRED: Prometheus CRDs exceed 262144 bytes annotation limit
+      - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
   ignoreDifferences:
     - group: apps
