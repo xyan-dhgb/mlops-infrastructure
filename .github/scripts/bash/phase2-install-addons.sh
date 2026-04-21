@@ -220,6 +220,7 @@ ssm_run 900 "⚙️ Install Monitoring" \
     --namespace prometheus \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
+    --force-conflicts \
     --wait --timeout 10m" \
   "echo '--- Verifying Alertmanager secret after Helm install ---'
    kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager \
