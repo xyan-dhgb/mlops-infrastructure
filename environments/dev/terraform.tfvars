@@ -12,12 +12,12 @@ cluster_version            = "1.35"
 cluster_log_retention_days = 7
 
 # Worker Node Configuration
-node_instance_types   = ["m5.large"]
-node_capacity_type    = "ON_DEMAND"
-node_desired_size     = 2
-node_min_size         = 2
-node_max_size         = 4
-enable_ml_node_group  = false
+node_instance_types  = ["m5.large"]
+node_capacity_type   = "ON_DEMAND"
+node_desired_size    = 2
+node_min_size        = 2
+node_max_size        = 4
+enable_ml_node_group = false
 
 # Bastion Host
 bastion_ssh_key_name     = "bastion-host"
@@ -33,3 +33,7 @@ bastion_allowed_ssh_cidr = "0.0.0.0/0"
 # ml_node_desired_size   = 1 # Cluster Autoscaler will scale up when there is a job
 
 domain_name = "kltn-argocd-ui.me"
+
+monitoring_alert_email_endpoints = [
+  "kltn-grafana-alertmanager@googlegroups.com",
+]
