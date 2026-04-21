@@ -21,7 +21,8 @@
 
 ```hcl
 monitoring_alert_email_endpoints = [
-  "kltn-grafana-alertmanager@googlegroups.com",
+  "giabaoctg@gmail.com",
+  "22520117@gm.uit.edu.vn",
 ]
 ```
 
