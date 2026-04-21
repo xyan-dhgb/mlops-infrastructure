@@ -35,5 +35,6 @@ bastion_allowed_ssh_cidr = "0.0.0.0/0"
 domain_name = "kltn-argocd-ui.me"
 
 monitoring_alert_email_endpoints = [
-  "kltn-grafana-alertmanager@googlegroups.com",
+  "giabaoctg@gmail.com",
+  "22520117@gm.uit.edu.vn",
 ]
