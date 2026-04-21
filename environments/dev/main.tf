@@ -125,3 +125,17 @@ module "mlflow" {
 
   depends_on = [module.eks]
 }
+
+module "monitoring" {
+  source = "../../modules/monitoring/prometheus/sns"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  eks_oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  eks_oidc_provider_url = module.eks.cluster_oidc_issuer_url
+
+  alert_email_endpoints = var.monitoring_alert_email_endpoints
+
+  depends_on = [module.eks]
+}

@@ -62,6 +62,7 @@ jobs:
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
           INSTANCE_ID: ${{ env.INSTANCE_ID }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -72,8 +73,6 @@ jobs:
           ARGOCD_DOMAIN: ${{ secrets.ARGOCD_DOMAIN }}
           GRAFANA_DOMAIN: ${{ secrets.GRAFANA_DOMAIN }}
           MLFLOW_DOMAIN: ${{ secrets.MLFLOW_DOMAIN }}
-          ALERT_SMTP_USERNAME: ${{ secrets.ALERT_SMTP_USERNAME }}
-          ALERT_SMTP_PASSWORD: ${{ secrets.ALERT_SMTP_PASSWORD }}
 
       # Summary
       - name: Post bootstrap summary

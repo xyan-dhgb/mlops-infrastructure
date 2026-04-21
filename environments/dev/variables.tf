@@ -137,3 +137,9 @@ variable "MLFLOW_DB_PASSWORD" {
   type        = string
   sensitive   = true
 }
+
+variable "monitoring_alert_email_endpoints" {
+  description = "Email endpoints subscribed to the SNS topic used by Alertmanager"
+  type        = list(string)
+  default     = []
+}

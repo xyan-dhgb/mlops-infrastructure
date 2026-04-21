@@ -15,15 +15,14 @@ prometheus:
 
 # Alertmanager configuration
 alertmanager:
+  serviceAccount:
+    create: true
+    name: alertmanager-sns
+    annotations:
+      eks.amazonaws.com/role-arn: __ALERTMANAGER_IRSA_ROLE_ARN__
   config:
     global:
       resolve_timeout: 5m
-      smtp_smarthost: smtp.gmail.com:587
-      smtp_from: __ALERT_SMTP_USERNAME__
-      smtp_auth_username: __ALERT_SMTP_USERNAME__
-      smtp_auth_identity: __ALERT_SMTP_USERNAME__
-      smtp_auth_password: __ALERT_SMTP_PASSWORD__
-      smtp_require_tls: true
     inhibit_rules:
       - source_matchers:
           - severity = critical
@@ -54,16 +53,21 @@ alertmanager:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 4h
-      receiver: eks-email
+      receiver: "null"
       routes:
         - receiver: "null"
           matchers:
             - alertname = "Watchdog"
+        - receiver: eks-sns
+          matchers:
+            - team = "platform"
     receivers:
       - name: "null"
-      - name: eks-email
-        email_configs:
-          - to: kltn-grafana-alertmanager@googlegroups.com
+      - name: eks-sns
+        sns_configs:
+          - topic_arn: __ALERT_SNS_TOPIC_ARN__
+            sigv4:
+              region: __AWS_REGION__
             send_resolved: true
   alertmanagerSpec:
     # Ephemeral storage - no PVC/EBS

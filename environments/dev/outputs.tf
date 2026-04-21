@@ -88,3 +88,13 @@ output "bastion_public_ips" {
   description = "Public IP addresses of all Bastion Hosts"
   value       = module.bastion.bastion_public_ips
 }
+
+output "monitoring_alertmanager_irsa_role_arn" {
+  description = "IAM role ARN used by Alertmanager for SNS publishing"
+  value       = module.monitoring.alertmanager_irsa_role_arn
+}
+
+output "monitoring_eks_alerts_topic_arn" {
+  description = "SNS topic ARN receiving EKS alerts"
+  value       = module.monitoring.eks_alerts_topic_arn
+}
