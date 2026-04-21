@@ -216,13 +216,34 @@ ssm_run 1500 "⚙️ Install Monitoring" \
   "helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true" \
   "helm repo update" \
   "kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -" \
+  "# Delete stale Alertmanager secret BEFORE helm upgrade so Prometheus Operator
+   # is forced to recreate it from the updated CRD config. Without this step,
+   # the Operator may skip reconciliation if it detects no CRD spec change,
+   # leaving the old secret (with un-replaced __placeholders__) intact.
+   echo '🗑️  Deleting stale Alertmanager secret (if present)...'
+   kubectl delete secret alertmanager-prometheus-kube-prometheus-alertmanager \
+     -n prometheus --ignore-not-found
+   echo '✅ Stale secret deleted — Operator will recreate from updated CRD'" \
   "helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
     --namespace prometheus \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --force-conflicts \
     --wait --timeout 10m" \
-  "echo '--- Verifying Alertmanager secret after Helm install ---'
+  "# Wait for Prometheus Operator to reconcile and recreate the Alertmanager secret.
+   # The Operator runs asynchronously; the secret may not exist immediately after
+   # helm upgrade returns, so we poll for up to 60s before verifying content.
+   echo '⏳ Waiting for Prometheus Operator to reconcile Alertmanager secret...'
+   for i in \$(seq 1 12); do
+     if kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager \
+          -n prometheus >/dev/null 2>&1; then
+       echo \"   Secret found after \$((i * 5))s\"
+       break
+     fi
+     echo \"   [\${i}/12] Not yet present, waiting 5s...\"
+     sleep 5
+   done
+   echo '--- Verifying Alertmanager secret after Helm install ---'
    kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager \
      -n prometheus \
      -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
