@@ -210,7 +210,7 @@ ssm_run 720 "⚙️ Install MLflow" \
 
 
 # Install Monitoring (Prometheus + Grafana).
-ssm_run 900 "⚙️ Install Monitoring" \
+ssm_run 1500 "⚙️ Install Monitoring" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true" \
   "helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true" \
