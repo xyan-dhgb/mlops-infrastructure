@@ -12,7 +12,7 @@ cluster_version            = "1.35"
 cluster_log_retention_days = 7
 
 # Worker Node Configuration
-node_instance_types  = ["m5.large"]
+node_instance_types  = ["m7i-flex.large"]
 node_capacity_type   = "ON_DEMAND"
 node_desired_size    = 2
 node_min_size        = 2
