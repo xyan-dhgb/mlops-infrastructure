@@ -20,8 +20,9 @@ spec:
       targetRevision: dev
       ref: values
   syncPolicy:
-    # No automated sync: prometheus values file in Git contains placeholders
-    # for SNS/IRSA that are rendered by phase2 during bootstrap.
+    # No automated sync: alertmanager config is managed as a K8s Secret by phase2.
+    # The SNS/IRSA values are never stored in Git; phase2 creates alertmanager-sns-config
+    # directly with rendered values so ArgoCD never overwrites them with __placeholders__.
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true    # REQUIRED: Prometheus CRDs exceed 262144 bytes annotation limit
@@ -46,3 +47,11 @@ spec:
       kind: ValidatingWebhookConfiguration
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+    # phase2 patches the real IRSA ARN onto this SA after Helm install.
+    # ArgoCD must not revert it back to the __placeholder__ from Git.
+    - group: ""
+      kind: ServiceAccount
+      name: alertmanager-sns
+      namespace: prometheus
+      jsonPointers:
+        - /metadata/annotations/eks.amazonaws.com~1role-arn
