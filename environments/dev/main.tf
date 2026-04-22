@@ -84,26 +84,44 @@ module "ecr" {
   }
 }
 
-
-# EKS Access Entry for Bastion Host
+# EKS Access Entries
 data "aws_iam_role" "bastion_role" {
   name       = "KLTN-Bastion-Host-ssm-role"
   depends_on = [module.bastion]
 }
 
-resource "aws_eks_access_entry" "bastion_admin" {
+locals {
+  cluster_admin_principal_arns = toset(concat(
+    [data.aws_iam_role.bastion_role.arn],
+    var.cluster_admin_principal_arns
+  ))
+
+  cluster_admin_principals = {
+    for arn in local.cluster_admin_principal_arns :
+    replace(replace(replace(arn, ":", "_"), "/", "_"), ".", "_") => arn
+  }
+}
+
+resource "aws_eks_access_entry" "cluster_admins" {
+  for_each = local.cluster_admin_principals
+
   cluster_name  = module.eks.cluster_name
-  principal_arn = data.aws_iam_role.bastion_role.arn
+  principal_arn = each.value
   type          = "STANDARD"
 }
 
-resource "aws_eks_access_policy_association" "bastion_admin_policy" {
+resource "aws_eks_access_policy_association" "cluster_admins" {
+  for_each = local.cluster_admin_principals
+
   cluster_name  = module.eks.cluster_name
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-  principal_arn = data.aws_iam_role.bastion_role.arn
+  principal_arn = each.value
+
   access_scope {
     type = "cluster"
   }
+
+  depends_on = [aws_eks_access_entry.cluster_admins]
 }
 
 module "mlflow" {

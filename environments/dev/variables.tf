@@ -143,3 +143,9 @@ variable "monitoring_alert_email_endpoints" {
   type        = list(string)
   default     = []
 }
+
+variable "cluster_admin_principal_arns" {
+  description = "Additional IAM principal ARNs that should have cluster-admin access to EKS"
+  type        = list(string)
+  default     = []
+}
