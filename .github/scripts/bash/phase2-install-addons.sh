@@ -45,6 +45,8 @@ PROM_RENDERED=$(sed \
   -e "s|__ALERT_SNS_TOPIC_ARN__|${ALERT_SNS_TOPIC_ARN}|g" \
   -e "s|__AWS_REGION__|${AWS_REGION}|g" \
   modules/monitoring/prometheus/prometheus-values.yaml)
+# After substitution the only remaining placeholder should be none — alertmanager.config
+# has been removed from prometheus-values.yaml and moved to alertmanager-config.yaml.tpl.
 if echo "${PROM_RENDERED}" | grep -qE '__[A-Z_]+__'; then
   echo "❌ ERROR: prometheus-values.yaml still contains unresolved placeholders:"
   echo "${PROM_RENDERED}" | grep -E '__[A-Z_]+__'
@@ -52,6 +54,20 @@ if echo "${PROM_RENDERED}" | grep -qE '__[A-Z_]+__'; then
 fi
 echo "✅ Prometheus placeholders replaced"
 PROM_B64=$(echo "${PROM_RENDERED}" | base64 -w 0)
+
+# Render Alertmanager config template on the runner. Phase2 creates the K8s Secret directly.
+echo "📇 Rendering alertmanager-config.yaml.tpl on the runner"
+ALERTMANAGER_CONFIG_RENDERED=$(sed \
+  -e "s|__ALERT_SNS_TOPIC_ARN__|${ALERT_SNS_TOPIC_ARN}|g" \
+  -e "s|__AWS_REGION__|${AWS_REGION}|g" \
+  modules/monitoring/prometheus/alertmanager-config.yaml.tpl)
+if echo "${ALERTMANAGER_CONFIG_RENDERED}" | grep -qE '__[A-Z_]+__'; then
+  echo "❌ ERROR: alertmanager-config.yaml.tpl still contains unresolved placeholders:"
+  echo "${ALERTMANAGER_CONFIG_RENDERED}" | grep -E '__[A-Z_]+__'
+  exit 1
+fi
+echo "✅ Alertmanager config placeholders replaced"
+ALERTMANAGER_CONFIG_B64=$(echo "${ALERTMANAGER_CONFIG_RENDERED}" | base64 -w 0)
 
 # Render Grafana values on the runner.
 echo "📇 Rendering Grafana values.yaml on the runner"
@@ -94,13 +110,20 @@ ssm_run 30 "🔗 Upload Helm values" \
   "echo '${GRAFANA_DASHBOARDS_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/dashboards.tgz" \
   "tar -xzf /tmp/helm-values/monitoring/grafana/dashboards.tgz -C /tmp/helm-values/monitoring/grafana" \
   "echo '${NVIDIA_PLUGIN_VALUES_B64}' | base64 -d > /tmp/helm-values/eks/nvidia-device-plugin-values.yaml" \
+  "# Decode rendered Alertmanager config (SNS placeholders already substituted on runner)
+   echo '${ALERTMANAGER_CONFIG_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml" \
   "if grep -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/values.yaml; then
      echo '❌ ERROR: Uploaded Prometheus values still contain unresolved placeholders'
      grep -E '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/values.yaml
      exit 1
    fi" \
-  "echo '--- Rendered Prometheus SNS config (verify) ---'" \
-  "grep -E 'role-arn:|topic_arn:|region:' /tmp/helm-values/monitoring/prometheus/values.yaml" \
+  "if grep -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml; then
+     echo '❌ ERROR: Uploaded Alertmanager config still contains unresolved placeholders'
+     grep -E '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml
+     exit 1
+   fi" \
+  "echo '--- Rendered Alertmanager SNS config (verify) ---'" \
+  "grep -E 'topic_arn:|region:|api_url:' /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml" \
   "echo '✅ Helm values uploaded OK'"
 
 
@@ -216,44 +239,56 @@ ssm_run 1500 "⚙️ Install Monitoring" \
   "helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true" \
   "helm repo update" \
   "kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -" \
-  "# Delete stale Alertmanager secret BEFORE helm upgrade so Prometheus Operator
-   # is forced to recreate it from the updated CRD config. Without this step,
-   # the Operator may skip reconciliation if it detects no CRD spec change,
-   # leaving the old secret (with un-replaced __placeholders__) intact.
-   echo '🗑️  Deleting stale Alertmanager secret (if present)...'
-   kubectl delete secret alertmanager-prometheus-kube-prometheus-alertmanager \
-     -n prometheus --ignore-not-found
-   echo '✅ Stale secret deleted — Operator will recreate from updated CRD'" \
+  "# Create (or replace) the Alertmanager config Secret BEFORE helm upgrade.
+   # This secret is referenced by alertmanagerConfigSecret in prometheus-values.yaml.
+   # Creating it here (with fully-rendered values) means Prometheus Operator picks it
+   # up directly — ArgoCD never sees the SNS/IRSA placeholders from Git.
+   echo '🔑 Creating alertmanager-sns-config secret from rendered config...'
+   kubectl create secret generic alertmanager-sns-config \
+     --namespace prometheus \
+     --from-file=alertmanager.yaml=/tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml \
+     --dry-run=client -o yaml | kubectl apply -f -
+   echo '✅ alertmanager-sns-config secret applied'
+   # Quick sanity-check: secret must NOT contain placeholders.
+   kubectl get secret alertmanager-sns-config -n prometheus \
+     -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-check.yaml
+   if grep -qE '__[A-Z_]+__' /tmp/alertmanager-check.yaml; then
+     echo '❌ ERROR: alertmanager-sns-config secret still contains unresolved placeholders'
+     grep -E '__[A-Z_]+__' /tmp/alertmanager-check.yaml
+     exit 1
+   fi
+   grep -E 'topic_arn:|region:|api_url:' /tmp/alertmanager-check.yaml
+   echo '✅ alertmanager-sns-config secret verified'" \
   "helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
     --namespace prometheus \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --force-conflicts \
     --wait --timeout 10m" \
-  "# Wait for Prometheus Operator to reconcile and recreate the Alertmanager secret.
-   # The Operator runs asynchronously; the secret may not exist immediately after
-   # helm upgrade returns, so we poll for up to 60s before verifying content.
-   echo '⏳ Waiting for Prometheus Operator to reconcile Alertmanager secret...'
-   for i in \$(seq 1 12); do
-     if kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager \
-          -n prometheus >/dev/null 2>&1; then
-       echo \"   Secret found after \$((i * 5))s\"
-       break
-     fi
-     echo \"   [\${i}/12] Not yet present, waiting 5s...\"
-     sleep 5
-   done
-   echo '--- Verifying Alertmanager secret after Helm install ---'
+  "# Patch the alertmanager ServiceAccount with the correct IRSA annotation.
+   # prometheus-values.yaml has the placeholder in Git (ArgoCD reads it), but we
+   # need the real ARN at runtime. kubectl patch overwrites only the annotation.
+   echo '🔧 Patching alertmanager-sns ServiceAccount with IRSA ARN...'
+   kubectl annotate serviceaccount alertmanager-sns \
+     -n prometheus \
+     eks.amazonaws.com/role-arn=${ALERTMANAGER_IRSA_ROLE_ARN} \
+     --overwrite
+   echo '✅ IRSA annotation patched'" \
+  "# Verify that Prometheus Operator mounted the config from our secret correctly.
+   echo '--- Verifying Alertmanager secret content after Helm install ---'
    kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager \
      -n prometheus \
+     -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml 2>/dev/null || \
+   kubectl get secret alertmanager-sns-config \
+     -n prometheus \
      -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
-   grep -E 'topic_arn:|region:' /tmp/alertmanager-rendered.yaml
+   grep -E 'topic_arn:|region:|api_url:' /tmp/alertmanager-rendered.yaml
    if grep -qE '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml; then
-     echo '❌ ERROR: Alertmanager secret still contains unresolved placeholders'
+     echo '❌ ERROR: Alertmanager config still contains unresolved placeholders'
      grep -E '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml
      exit 1
    fi
-   echo '✅ Alertmanager secret rendered correctly'" \
+   echo '✅ Alertmanager config rendered correctly'" \
   "kubectl apply -f /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml" \
   "kubectl get prometheusrule eks-alerts -n prometheus" \
   "kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -" \
