@@ -28,7 +28,8 @@ env:
 
 jobs:
   terraform-apply:
-    name: "Deploy Infrastructure to ${{ github.event.inputs.environment }} environment"
+    name: "Deploy Infrastructure to ${{ github.event.inputs.environment }}
+      environment"
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -68,7 +69,7 @@ jobs:
         id: plan
         run: |
           echo "Downloading plan for commit: ${{ github.event.inputs.plan_commit_sha }}"
-          aws s3 cp s3://kltn-tfstate-dev/plans/${{ github.event.inputs.environment }}/${{ github.event.inputs.plan_commit_sha }}/tfplan tfplan
+          aws s3 cp s3://kltn-s3-tfstate-dev-env/plans/${{ github.event.inputs.environment }}/${{ github.event.inputs.plan_commit_sha }}/tfplan tfplan
           echo "✅ Plan downloaded successfully"
 
       - name: Import existing AWS resources (if exist on AWS)
