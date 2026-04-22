@@ -68,7 +68,7 @@ jobs:
       - name: Upload plan to S3
         if: steps.plan.outcome == 'success'
         run: |
-          aws s3 cp tfplan s3://kltn-tfstate-dev/plans/dev/${{ github.sha }}/tfplan
+          aws s3 cp tfplan s3://kltn-s3-tfstate-dev-env/plans/dev/${{ github.sha }}/tfplan
           echo "✅ Plan uploaded: plans/dev/${{ github.sha }}/tfplan"
 
       - name: Post plan comment on PR
