@@ -51,11 +51,12 @@ resource "aws_key_pair" "bastion_key" {
 module "bastion" {
   source = "../../modules/bastion-host"
 
-  vpc_id           = module.vpc.vpc_id
-  subnet_ids       = module.vpc.public_subnet_ids
-  ssh_key_name     = aws_key_pair.bastion_key.key_name
-  allowed_ssh_cidr = var.bastion_allowed_ssh_cidr
-  cluster_name     = var.cluster_name
+  vpc_id                = module.vpc.vpc_id
+  subnet_ids            = module.vpc.public_subnet_ids
+  bastion_instance_type = var.bastion_instance_type
+  ssh_key_name          = aws_key_pair.bastion_key.key_name
+  allowed_ssh_cidr      = var.bastion_allowed_ssh_cidr
+  cluster_name          = var.cluster_name
 }
 
 module "load_balancer_controller" {

@@ -20,6 +20,7 @@ node_max_size        = 4
 enable_ml_node_group = false
 
 # Bastion Host
+bastion_instance_type    = "t3.micro"
 bastion_ssh_key_name     = "bastion-host"
 bastion_allowed_ssh_cidr = "0.0.0.0/0"
 

@@ -47,6 +47,56 @@ jobs:
         id: init
         run: terraform init -reconfigure
 
+      - name: Import existing AWS resources before plan
+        id: import
+        env:
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
+          TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CLUSTER_NAME=$(awk -F'"' '/^cluster_name[[:space:]]*=/{print $2}' terraform.tfvars)
+          NODEGROUP_NAME="${CLUSTER_NAME}-node-group"
+
+          S3_BUCKET="kltn-mlops-mlflow-artifacts-dev"
+          S3_ADDR="module.mlflow.module.s3.aws_s3_bucket.mlflow_artifact"
+          NODEGROUP_ADDR="module.eks.aws_eks_node_group.main"
+          OIDC_ADDR="module.eks.aws_iam_openid_connect_provider.eks"
+
+          if aws s3api head-bucket --bucket "${S3_BUCKET}" 2>/dev/null; then
+            if ! terraform state show "${S3_ADDR}" >/dev/null 2>&1; then
+              echo "Importing existing S3 bucket: ${S3_BUCKET}"
+              terraform import "${S3_ADDR}" "${S3_BUCKET}"
+            fi
+          fi
+
+          if aws eks describe-nodegroup \
+            --cluster-name "${CLUSTER_NAME}" \
+            --nodegroup-name "${NODEGROUP_NAME}" >/dev/null 2>&1; then
+            if ! terraform state show "${NODEGROUP_ADDR}" >/dev/null 2>&1; then
+              echo "Importing existing EKS node group: ${NODEGROUP_NAME}"
+              terraform import "${NODEGROUP_ADDR}" "${CLUSTER_NAME}:${NODEGROUP_NAME}"
+            fi
+          fi
+
+          OIDC_ISSUER=$(aws eks describe-cluster \
+            --name "${CLUSTER_NAME}" \
+            --query "cluster.identity.oidc.issuer" \
+            --output text 2>/dev/null || true)
+
+          if [ -n "${OIDC_ISSUER}" ] && [ "${OIDC_ISSUER}" != "None" ]; then
+            ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+            OIDC_PROVIDER_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_ISSUER#https://}"
+
+            if aws iam get-open-id-connect-provider \
+              --open-id-connect-provider-arn "${OIDC_PROVIDER_ARN}" >/dev/null 2>&1; then
+              if ! terraform state show "${OIDC_ADDR}" >/dev/null 2>&1; then
+                echo "Importing existing IAM OIDC provider"
+                terraform import "${OIDC_ADDR}" "${OIDC_PROVIDER_ARN}"
+              fi
+            fi
+          fi
+
       - name: Terraform Format Check
         id: fmt
         run: terraform fmt -check -recursive -diff ../..
