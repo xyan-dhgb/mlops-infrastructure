@@ -295,13 +295,11 @@ ssm_run 1500 "⚙️ Install Monitoring" \
    kubectl rollout status statefulset \
      alertmanager-prometheus-kube-prometheus-alertmanager -n prometheus --timeout=120s
    echo '✅ Alertmanager restarted'" \
-  "# Final verify: operator secret must contain SNS config, no placeholders.
-   echo '--- Final verify: Alertmanager operator secret ---'
-   kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager \
-     -n prometheus \
-     -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
-   grep -E 'api_url:|topic_arn:|region:|subject:|eks-sns' /tmp/alertmanager-rendered.yaml || \
-     echo '⚠️  WARNING: SNS fields not found — Operator may still be reconciling'
+  "# Final verify: check the secret that Alertmanager actually mounts.
+   echo '--- Final verify: alertmanager-sns-config secret ---'
+   kubectl get secret alertmanager-sns-config -n prometheus \
+     -o jsonpath='{.data.alertmanager\\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
+   grep -E 'api_url:|topic_arn:|region:|subject:|eks-sns' /tmp/alertmanager-rendered.yaml
    if grep -qE '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml; then
      echo '❌ ERROR: Alertmanager config still contains unresolved placeholders'
      grep -E '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml
