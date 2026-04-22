@@ -73,6 +73,10 @@ jobs:
           aws s3 cp s3://kltn-s3-tfstate-dev-env/plans/${{ github.event.inputs.environment }}/${{ github.event.inputs.plan_commit_sha }}/tfplan tfplan
           echo "✅ Plan downloaded successfully"
 
+      - name: Verify downloaded plan
+        id: verify_plan
+        run: terraform show -no-color tfplan > /dev/null
+
       - name: Import existing AWS resources (if exist on AWS)
         id: import
         env:
