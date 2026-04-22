@@ -46,5 +46,7 @@ receivers:
         topic_arn: __ALERT_SNS_TOPIC_ARN__
         sigv4:
           region: __AWS_REGION__
+          access_key: __AWS_ACCESS_KEY_ID__
+          secret_key: __AWS_SECRET_ACCESS_KEY__
         subject: 'EKS Alert - {{ .CommonLabels.alertname | trunc 80 }}'
         send_resolved: true

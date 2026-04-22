@@ -60,6 +60,8 @@ echo "📇 Rendering alertmanager-config.yaml.tpl on the runner"
 ALERTMANAGER_CONFIG_RENDERED=$(sed \
   -e "s|__ALERT_SNS_TOPIC_ARN__|${ALERT_SNS_TOPIC_ARN}|g" \
   -e "s|__AWS_REGION__|${AWS_REGION}|g" \
+  -e "s|__AWS_ACCESS_KEY_ID__|${AWS_ACCESS_KEY_ID}|g" \
+  -e "s|__AWS_SECRET_ACCESS_KEY__|${AWS_SECRET_ACCESS_KEY}|g" \
   modules/monitoring/prometheus/alertmanager-config.yaml.tpl)
 if echo "${ALERTMANAGER_CONFIG_RENDERED}" | grep -qE '__[A-Z_]+__'; then
   echo "❌ ERROR: alertmanager-config.yaml.tpl still contains unresolved placeholders:"
