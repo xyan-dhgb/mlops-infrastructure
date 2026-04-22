@@ -91,15 +91,21 @@ data "aws_iam_role" "bastion_role" {
 }
 
 locals {
-  cluster_admin_principal_arns = toset(concat(
-    [data.aws_iam_role.bastion_role.arn],
+  additional_cluster_admin_principal_arns = distinct(concat(
     var.cluster_admin_principal_arns,
     try(tolist(jsondecode(var.cluster_admin_principal_arns_json)), [])
   ))
 
   cluster_admin_principals = {
-    for arn in local.cluster_admin_principal_arns :
-    replace(replace(replace(arn, ":", "_"), "/", "_"), ".", "_") => arn
+    for key, arn in merge(
+      {
+        bastion = data.aws_iam_role.bastion_role.arn
+      },
+      {
+        for idx, value in local.additional_cluster_admin_principal_arns :
+        "additional_${idx}" => value
+      }
+    ) : key => arn
   }
 }
 

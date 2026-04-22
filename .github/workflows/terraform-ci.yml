@@ -64,7 +64,9 @@ jobs:
           TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
           TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
         id: plan
-        run: terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan.txt
+        run: |
+          set -o pipefail
+          terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan.txt
 
       - name: Upload plan to S3
         if: steps.plan.outcome == 'success'

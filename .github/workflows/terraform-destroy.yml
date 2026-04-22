@@ -80,7 +80,9 @@ jobs:
           TF_VAR_github_pat: ${{ secrets.RUNNER_PATH }}
           TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
           TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
-        run: terraform plan -destroy -no-color -input=false 2>&1 | tee destroy-plan.txt
+        run: |
+          set -o pipefail
+          terraform plan -destroy -no-color -input=false 2>&1 | tee destroy-plan.txt
 
       - name: Terraform Destroy
         id: destroy
