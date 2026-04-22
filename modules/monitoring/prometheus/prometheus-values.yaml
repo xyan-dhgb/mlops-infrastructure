@@ -26,8 +26,12 @@ alertmanager:
       # IRSA annotation is rendered by phase2 via kubectl patch after Helm install.
       # Placeholder here is intentional — ArgoCD ignores annotation drift via ignoreDifferences.
       eks.amazonaws.com/role-arn: __ALERTMANAGER_IRSA_ROLE_ARN__
-  alertmanagerConfigSecret: alertmanager-sns-config
   alertmanagerSpec:
+    # configSecret: name of the K8s Secret containing the Alertmanager config.
+    # This secret is created by phase2-install-addons.sh with rendered SNS/IRSA values
+    # so ArgoCD never reads __placeholders__ from Git.
+    configSecret: alertmanager-sns-config
     # Ephemeral storage - no PVC/EBS
     storage:
       emptyDir: {}
+

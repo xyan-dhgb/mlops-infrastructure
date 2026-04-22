@@ -266,23 +266,40 @@ ssm_run 1500 "⚙️ Install Monitoring" \
     --force-conflicts \
     --wait --timeout 10m" \
   "# Patch the alertmanager ServiceAccount with the correct IRSA annotation.
-   # prometheus-values.yaml has the placeholder in Git (ArgoCD reads it), but we
-   # need the real ARN at runtime. kubectl patch overwrites only the annotation.
    echo '🔧 Patching alertmanager-sns ServiceAccount with IRSA ARN...'
    kubectl annotate serviceaccount alertmanager-sns \
      -n prometheus \
      eks.amazonaws.com/role-arn=${ALERTMANAGER_IRSA_ROLE_ARN} \
      --overwrite
    echo '✅ IRSA annotation patched'" \
-  "# Verify that Prometheus Operator mounted the config from our secret correctly.
-   echo '--- Verifying Alertmanager secret content after Helm install ---'
+  "# Verify configSecret is correctly set in the Alertmanager CR.
+   # Safety net: if prometheus-values.yaml had configSecret in wrong path, patch CR directly.
+   CONFIG_SECRET=\$(kubectl get alertmanager prometheus-kube-prometheus-alertmanager \
+     -n prometheus -o jsonpath='{.spec.configSecret}' 2>/dev/null || echo '')
+   echo \"  Alertmanager CR configSecret: '\${CONFIG_SECRET}'\"
+   if [ \"\${CONFIG_SECRET}\" != 'alertmanager-sns-config' ]; then
+     echo '⚠️  configSecret not set in CR — patching directly...'
+     kubectl patch alertmanager prometheus-kube-prometheus-alertmanager \
+       -n prometheus --type=merge \
+       -p '{\"spec\":{\"configSecret\":\"alertmanager-sns-config\"}}'
+     echo '✅ Alertmanager CR patched with configSecret'
+   else
+     echo '✅ configSecret correctly set in Alertmanager CR'
+   fi" \
+  "# Restart Alertmanager to force reload of the new secret immediately.
+   echo '🔄 Restarting Alertmanager to reload config...'
+   kubectl rollout restart statefulset \
+     alertmanager-prometheus-kube-prometheus-alertmanager -n prometheus
+   kubectl rollout status statefulset \
+     alertmanager-prometheus-kube-prometheus-alertmanager -n prometheus --timeout=120s
+   echo '✅ Alertmanager restarted'" \
+  "# Final verify: operator secret must contain SNS config, no placeholders.
+   echo '--- Final verify: Alertmanager operator secret ---'
    kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager \
      -n prometheus \
-     -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml 2>/dev/null || \
-   kubectl get secret alertmanager-sns-config \
-     -n prometheus \
      -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
-   grep -E 'topic_arn:|region:|api_url:' /tmp/alertmanager-rendered.yaml
+   grep -E 'api_url:|topic_arn:|region:|subject:|eks-sns' /tmp/alertmanager-rendered.yaml || \
+     echo '⚠️  WARNING: SNS fields not found — Operator may still be reconciling'
    if grep -qE '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml; then
      echo '❌ ERROR: Alertmanager config still contains unresolved placeholders'
      grep -E '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml
