@@ -80,6 +80,12 @@ variable "bastion_ssh_key_name" {
   type        = string
 }
 
+variable "bastion_instance_type" {
+  description = "EC2 instance type for the bastion host"
+  type        = string
+  default     = "t3.micro"
+}
+
 variable "bastion_allowed_ssh_cidr" {
   description = "Your public IP in CIDR notation to allow SSH (e.g. 203.0.113.50/32)"
   type        = string
