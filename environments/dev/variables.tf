@@ -149,3 +149,9 @@ variable "cluster_admin_principal_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "cluster_admin_principal_arns_json" {
+  description = "JSON array string of additional IAM principal ARNs that should have cluster-admin access to EKS"
+  type        = string
+  default     = "[]"
+}

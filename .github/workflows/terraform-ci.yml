@@ -17,7 +17,7 @@ env:
   TERRAFORM_VERSION: "1.10.5"
   AWS_REGION: "ap-southeast-1"
   WORKING_DIR: "environments/dev"
-  TF_VAR_cluster_admin_principal_arns: ${{ vars.EKS_CLUSTER_ADMIN_PRINCIPAL_ARNS || '[]' }}
+  TF_VAR_cluster_admin_principal_arns_json: ${{ vars.EKS_CLUSTER_ADMIN_PRINCIPAL_ARNS || '[]' }}
 
 jobs:
   terraform-ci:

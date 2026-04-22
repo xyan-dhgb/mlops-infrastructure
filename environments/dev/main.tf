@@ -93,7 +93,8 @@ data "aws_iam_role" "bastion_role" {
 locals {
   cluster_admin_principal_arns = toset(concat(
     [data.aws_iam_role.bastion_role.arn],
-    var.cluster_admin_principal_arns
+    var.cluster_admin_principal_arns,
+    try(tolist(jsondecode(var.cluster_admin_principal_arns_json)), [])
   ))
 
   cluster_admin_principals = {
