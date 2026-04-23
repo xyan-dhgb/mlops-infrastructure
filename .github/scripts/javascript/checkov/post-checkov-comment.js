@@ -10,6 +10,22 @@ const formatPercent = (value) => {
   return `${(value * 100).toFixed(2)}%`;
 };
 
+const statusEmoji = (value) => {
+  if (value === 'success') {
+    return '✅';
+  }
+
+  if (value === 'failure') {
+    return '⚠️';
+  }
+
+  if (value === 'skipped') {
+    return '⏭️';
+  }
+
+  return '❔';
+};
+
 module.exports = async ({ github, context }) => {
   const checkovOutcome = process.env.CHECKOV_OUTCOME ?? 'unknown';
   const summaryFile = process.env.CHECKOV_SUMMARY_FILE ?? 'reports/checkov-summary.json';
@@ -27,15 +43,17 @@ module.exports = async ({ github, context }) => {
   }
 
   const body = [];
-  body.push('## Checkov Scan - DEV Environment');
+  body.push('## 🔍 Checkov Scan - DEV Environment');
   body.push('');
 
   if (!summary.available) {
-    body.push(`> WARN Checkov summary is unavailable: ${summary.reason ?? 'unknown reason'}`);
+    body.push(`> ⚠️ Checkov summary is unavailable: ${summary.reason ?? 'unknown reason'}`);
   } else {
+    body.push('> 🟡 Report-only mode: Checkov findings are logged, commented, and stored in S3, but they do not fail this CI run.');
+    body.push('');
     body.push('| Metric | Value |');
     body.push('|--------|-------|');
-    body.push(`| Outcome | \`${checkovOutcome}\` |`);
+    body.push(`| Outcome | ${statusEmoji(checkovOutcome)} \`${checkovOutcome}\` |`);
     body.push(`| Passed checks | \`${summary.passed}\` |`);
     body.push(`| Failed checks | \`${summary.failures}\` |`);
     body.push(`| Skipped checks | \`${summary.skipped}\` |`);
@@ -55,7 +73,7 @@ module.exports = async ({ github, context }) => {
 
     if (Array.isArray(summary.top_failed_checks) && summary.top_failed_checks.length > 0) {
       body.push('');
-      body.push('### Top Failed Checks');
+      body.push('### ⚠️ Top Failed Checks');
       body.push('');
 
       for (const item of summary.top_failed_checks.slice(0, 5)) {
@@ -76,7 +94,7 @@ module.exports = async ({ github, context }) => {
   });
 
   const existing = comments.find(
-    (comment) => comment.user.type === 'Bot' && comment.body.includes('## Checkov Scan - DEV Environment')
+    (comment) => comment.user.type === 'Bot' && comment.body.includes('Checkov Scan - DEV Environment')
   );
 
   if (existing) {

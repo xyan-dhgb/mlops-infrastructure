@@ -35,7 +35,17 @@ const readNumber = (value, fallback = 0) => {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 };
 
-const raw = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+let raw;
+try {
+  raw = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+} catch (_) {
+  writeSummary({
+    available: false,
+    reason: 'Could not parse Checkov JSON report',
+  });
+  process.exit(0);
+}
+
 const reports = toArray(raw);
 
 let passed = 0;

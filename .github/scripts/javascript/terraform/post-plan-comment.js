@@ -20,7 +20,7 @@ module.exports = async ({ github, context }) => {
   const planFile = process.env.PLAN_FILE ?? 'environments/dev/plan.txt';
 
   const icon = (outcome) =>
-    outcome === 'success' ? 'OK' : outcome === 'failure' ? 'FAIL' : 'WARN';
+    outcome === 'success' ? '✅' : outcome === 'failure' ? '⚠️' : '⏭️';
 
   let planText = '(could not read plan output)';
   try {
@@ -33,10 +33,10 @@ module.exports = async ({ github, context }) => {
 
   const statusSection =
     plan === 'success'
-      ? `> OK **Plan OK.** To apply, run the workflow [Terraform Apply](../.github/workflows/terraform-apply.yml) with:\n` +
+      ? `> ✅ **Plan generated successfully.** To apply, run the workflow [Terraform Apply](../.github/workflows/terraform-apply.yml) with:\n` +
         `> - **Environment:** \`dev\`\n` +
         `> - **Plan Commit SHA:** \`${sha}\``
-      : '> FAIL **Plan failed.** Please check the plan output and fix the issue before merging.';
+      : '> ⚠️ **Plan encountered issues.** This CI is report-only right now, so please review the log before merging or applying.';
 
   const resultRows = [
     '| Step     | Result |',
@@ -47,7 +47,9 @@ module.exports = async ({ github, context }) => {
   ];
 
   const body = [
-    '## Terraform Plan - DEV Environment',
+    '## 🧱 Terraform Plan - DEV Environment',
+    '',
+    '> 🟡 Report-only mode: Terraform issues are preserved for review, but they do not fail this CI run.',
     '',
     ...resultRows,
     '',
@@ -73,7 +75,7 @@ module.exports = async ({ github, context }) => {
   });
 
   const existing = comments.find(
-    (comment) => comment.user.type === 'Bot' && comment.body.includes('Terraform Plan')
+    (comment) => comment.user.type === 'Bot' && comment.body.includes('Terraform Plan - DEV Environment')
   );
 
   if (existing) {

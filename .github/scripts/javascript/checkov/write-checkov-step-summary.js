@@ -17,20 +17,46 @@ const formatPercent = (value) => {
   return `${(value * 100).toFixed(2)}%`;
 };
 
-const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+const statusEmoji = (value) => {
+  if (value === 'success') {
+    return '✅';
+  }
+
+  if (value === 'failure') {
+    return '⚠️';
+  }
+
+  if (value === 'skipped') {
+    return '⏭️';
+  }
+
+  return '❔';
+};
+
+let summary;
+try {
+  summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+} catch (_) {
+  summary = {
+    available: false,
+    reason: 'Could not read Checkov summary file',
+  };
+}
 
 if (!summary.available) {
-  console.log('## Checkov Summary');
+  console.log('## 🔍 Checkov Summary');
   console.log('');
-  console.log(`Checkov summary is unavailable: ${summary.reason ?? 'unknown reason'}`);
+  console.log(`⚠️ Checkov summary is unavailable: ${summary.reason ?? 'unknown reason'}`);
   process.exit(0);
 }
 
-console.log('## Checkov Summary');
+console.log('## 🔍 Checkov Summary');
+console.log('');
+console.log('> 🟡 Report-only mode: Checkov findings are logged for review, but they do not fail this CI run.');
 console.log('');
 console.log('| Metric | Value |');
 console.log('|--------|-------|');
-console.log(`| Outcome | \`${summary.checkov_outcome ?? 'unknown'}\` |`);
+console.log(`| Outcome | ${statusEmoji(summary.checkov_outcome)} \`${summary.checkov_outcome ?? 'unknown'}\` |`);
 console.log(`| Passed checks | \`${summary.passed}\` |`);
 console.log(`| Failed checks | \`${summary.failures}\` |`);
 console.log(`| Skipped checks | \`${summary.skipped}\` |`);
@@ -41,6 +67,7 @@ console.log(`| Checkov version | \`${summary.checkov_version ?? 'unknown'}\` |`)
 if (summary.s3_uri) {
   console.log(`| CLI log in S3 | \`${summary.s3_uri}/checkov-cli.log\` |`);
   console.log(`| Raw JSON in S3 | \`${summary.s3_uri}/checkov.json\` |`);
+  console.log(`| Summary JSON in S3 | \`${summary.s3_uri}/checkov-summary.json\` |`);
 }
 
 if (summary.artifact_name) {
@@ -49,7 +76,7 @@ if (summary.artifact_name) {
 
 if (Array.isArray(summary.top_failed_checks) && summary.top_failed_checks.length > 0) {
   console.log('');
-  console.log('### Top Failed Checks');
+  console.log('### ⚠️ Top Failed Checks');
   console.log('');
 
   for (const item of summary.top_failed_checks.slice(0, 5)) {
