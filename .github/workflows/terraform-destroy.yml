@@ -130,5 +130,5 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const notify = require('./.github/scripts/notify-failure.js');
+            const notify = require('./.github/scripts/javascript/terraform/notify-failure.js');
             await notify({ github, context });
