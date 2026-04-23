@@ -1,4 +1,5 @@
 'use strict';
+
 const fs = require('fs');
 
 /**
@@ -9,7 +10,7 @@ const fs = require('fs');
  * VALIDATE_OUTCOME - outcome of the validate step
  * PLAN_OUTCOME     - outcome of the plan step
  * COMMIT_SHA       - the commit SHA for this run
- * PLAN_FILE        - path to the plan text file (default: environments/dev/plan.txt)
+ * PLAN_FILE        - path to the plan text file
  */
 module.exports = async ({ github, context }) => {
   const fmt = process.env.FMT_OUTCOME;
@@ -19,32 +20,38 @@ module.exports = async ({ github, context }) => {
   const planFile = process.env.PLAN_FILE ?? 'environments/dev/plan.txt';
 
   const icon = (outcome) =>
-    outcome === 'success' ? '✅' : outcome === 'failure' ? '❌' : '⚠️';
+    outcome === 'success' ? '✅' : outcome === 'failure' ? '⚠️' : '⏭️';
 
   let planText = '(could not read plan output)';
   try {
     const raw = fs.readFileSync(planFile, 'utf8');
-    const MAX = 65000;
-    planText = raw.length > MAX ? raw.substring(0, MAX) + '\n...(truncated)' : raw;
-  } catch (_) { }
+    const maxLength = 65000;
+    planText = raw.length > maxLength ? `${raw.substring(0, maxLength)}\n...(truncated)` : raw;
+  } catch (_) {
+    // Keep the fallback text above.
+  }
 
   const statusSection =
     plan === 'success'
-      ? `> ✅ **Plan OK.** To apply, run the workflow [Terraform Apply](../.github/workflows/terraform-apply.yml) with:\n` +
-      `> - **Environment:** \`dev\`\n` +
-      `> - **Plan Commit SHA:** \`${sha}\``
-      : `> ❌ **Plan FAILED.** Please check the output above and fix the error before merging.`;
+      ? `> ✅ **Plan generated successfully.** To apply, run the workflow [Terraform Apply](../.github/workflows/terraform-apply.yml) with:\n` +
+        `> - **Environment:** \`dev\`\n` +
+        `> - **Plan Commit SHA:** \`${sha}\``
+      : '> ⚠️ **Plan failed.** This is a blocking Terraform step, so please review the log before merging or applying.';
 
-  const body = [
-    '## Terraform Plan — DEV Environment',
-    '',
+  const resultRows = [
     '| Step     | Result |',
     '|----------|--------|',
     `| Format   | ${icon(fmt)} \`${fmt}\` |`,
     `| Validate | ${icon(validate)} \`${validate}\` |`,
     `| Plan     | ${icon(plan)} \`${plan}\` |`,
+  ];
+
+  const body = [
+    '## 🧱 Terraform Plan - DEV Environment',
     '',
-    '<details><summary>📄 Show Plan Output</summary>',
+    ...resultRows,
+    '',
+    '<details><summary>Show plan output</summary>',
     '',
     '```hcl',
     planText,
@@ -54,8 +61,10 @@ module.exports = async ({ github, context }) => {
     '---',
     statusSection,
     '',
-    `> *Commit: \`${sha}\`*`,
-  ].join('\n');
+    `> Commit: \`${sha}\``,
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const { data: comments } = await github.rest.issues.listComments({
     owner: context.repo.owner,
@@ -64,7 +73,7 @@ module.exports = async ({ github, context }) => {
   });
 
   const existing = comments.find(
-    (c) => c.user.type === 'Bot' && c.body.includes('Terraform Plan — DEV Environment')
+    (comment) => comment.user.type === 'Bot' && comment.body.includes('Terraform Plan - DEV Environment')
   );
 
   if (existing) {

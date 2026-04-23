@@ -44,3 +44,4 @@ terraform.rc
 *.pdf
 *.pub
 new-bastion-key
+reports/

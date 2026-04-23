@@ -1,0 +1,9 @@
+framework:
+  - terraform
+compact: true
+quiet: true
+evaluate-variables: true
+skip-path:
+  - (^|/)\.terraform($|/)
+  - (^|/)\.external_modules($|/)
+  - (^|/)reports($|/)
