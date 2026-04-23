@@ -36,7 +36,7 @@ module.exports = async ({ github, context }) => {
       ? `> ✅ **Plan generated successfully.** To apply, run the workflow [Terraform Apply](../.github/workflows/terraform-apply.yml) with:\n` +
         `> - **Environment:** \`dev\`\n` +
         `> - **Plan Commit SHA:** \`${sha}\``
-      : '> ⚠️ **Plan encountered issues.** This CI is report-only right now, so please review the log before merging or applying.';
+      : '> ⚠️ **Plan failed.** This is a blocking Terraform step, so please review the log before merging or applying.';
 
   const resultRows = [
     '| Step     | Result |',
@@ -48,8 +48,6 @@ module.exports = async ({ github, context }) => {
 
   const body = [
     '## 🧱 Terraform Plan - DEV Environment',
-    '',
-    '> 🟡 Report-only mode: Terraform issues are preserved for review, but they do not fail this CI run.',
     '',
     ...resultRows,
     '',

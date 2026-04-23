@@ -49,7 +49,7 @@ module.exports = async ({ github, context }) => {
   if (!summary.available) {
     body.push(`> ⚠️ Checkov summary is unavailable: ${summary.reason ?? 'unknown reason'}`);
   } else {
-    body.push('> 🟡 Report-only mode: Checkov findings are logged, commented, and stored in S3, but they do not fail this CI run.');
+    body.push('> 🟡 Advisory only: Checkov findings are logged, commented, and stored in S3, but they do not fail this CI run.');
     body.push('');
     body.push('| Metric | Value |');
     body.push('|--------|-------|');

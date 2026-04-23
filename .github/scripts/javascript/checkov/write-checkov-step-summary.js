@@ -52,7 +52,7 @@ if (!summary.available) {
 
 console.log('## 🔍 Checkov Summary');
 console.log('');
-console.log('> 🟡 Report-only mode: Checkov findings are logged for review, but they do not fail this CI run.');
+console.log('> 🟡 Advisory only: Checkov findings are logged for review, but they do not fail this CI run.');
 console.log('');
 console.log('| Metric | Value |');
 console.log('|--------|-------|');
