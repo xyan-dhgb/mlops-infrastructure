@@ -5,6 +5,9 @@ on:
     branches:
       - dev
     paths:
+      - ".github/scripts/**"
+      - ".github/workflows/terraform-ci.yml"
+      - ".checkov.yaml"
       - "environments/dev/**"
       - "modules/**"
 
@@ -15,8 +18,11 @@ permissions:
 
 env:
   TERRAFORM_VERSION: "1.10.5"
+  CHECKOV_VERSION: "3.2.521"
   AWS_REGION: "ap-southeast-1"
   WORKING_DIR: "environments/dev"
+  CHECKOV_REPORTS_BUCKET: "checkov-reports-bucket"
+  CHECKOV_REPORTS_PREFIX: ${{ vars.CHECKOV_REPORTS_PREFIX || 'terraform-ci/dev' }}
   TF_VAR_cluster_admin_principal_arns_json: ${{ vars.EKS_CLUSTER_ADMIN_PRINCIPAL_ARNS || '[]' }}
 
 jobs:
@@ -35,6 +41,19 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Set up Python for Checkov
+        if: always()
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Checkov
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install "checkov==${{ env.CHECKOV_VERSION }}"
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -103,17 +122,17 @@ jobs:
         continue-on-error: true
 
       - name: Terraform Validate
+        id: validate
         env:
           TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
           TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
-        id: validate
         run: terraform validate -no-color
 
       - name: Terraform Plan
+        id: plan
         env:
           TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
           TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
-        id: plan
         run: |
           set -o pipefail
           terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan.txt
@@ -122,7 +141,64 @@ jobs:
         if: steps.plan.outcome == 'success'
         run: |
           aws s3 cp tfplan s3://kltn-s3-tfstate-dev-env/plans/dev/${{ github.sha }}/tfplan
-          echo "✅ Plan uploaded: plans/dev/${{ github.sha }}/tfplan"
+          echo "Plan uploaded: plans/dev/${{ github.sha }}/tfplan"
+
+      - name: Run Checkov
+        if: always()
+        id: checkov
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p reports
+          set -o pipefail
+          checkov \
+            --config-file .checkov.yaml \
+            --directory . \
+            --output cli \
+            --output json \
+            --output junitxml \
+            --output-file-path console,reports/checkov.json,reports/checkov.junit.xml | tee reports/checkov-cli.log
+
+      - name: Prepare Checkov report destinations
+        if: always() && steps.checkov.outcome != 'skipped'
+        run: |
+          CHECKOV_S3_URI="s3://${{ env.CHECKOV_REPORTS_BUCKET }}/${{ env.CHECKOV_REPORTS_PREFIX }}/sha=${{ github.sha }}/run-id=${{ github.run_id }}/attempt=${{ github.run_attempt }}"
+          echo "CHECKOV_REPORTS_S3_URI=${CHECKOV_S3_URI}" >> "$GITHUB_ENV"
+
+      - name: Build Checkov summary
+        if: always() && steps.checkov.outcome != 'skipped'
+        working-directory: ${{ github.workspace }}
+        env:
+          CHECKOV_OUTCOME: ${{ steps.checkov.outcome }}
+          CHECKOV_ARTIFACT_NAME: checkov-junit-${{ github.sha }}
+        run: |
+          node .github/scripts/javascript/checkov/build-checkov-summary.js \
+            reports/checkov.json \
+            reports/checkov-summary.json
+
+      - name: Upload Checkov JUnit artifact
+        if: always() && steps.checkov.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-junit-${{ github.sha }}
+          path: |
+            reports/checkov.junit.xml
+          if-no-files-found: warn
+
+      - name: Upload Checkov JSON reports to S3
+        if: always() && steps.checkov.outcome != 'skipped'
+        working-directory: ${{ github.workspace }}
+        run: |
+          aws s3 cp reports/checkov-cli.log "${CHECKOV_REPORTS_S3_URI}/checkov-cli.log" --content-type text/plain
+          aws s3 cp reports/checkov.json "${CHECKOV_REPORTS_S3_URI}/checkov.json" --content-type application/json
+          aws s3 cp reports/checkov-summary.json "${CHECKOV_REPORTS_S3_URI}/checkov-summary.json" --content-type application/json
+          echo "Checkov JSON reports uploaded to ${CHECKOV_REPORTS_S3_URI}"
+
+      - name: Publish Checkov Step Summary
+        if: always() && steps.checkov.outcome != 'skipped'
+        working-directory: ${{ github.workspace }}
+        run: |
+          node .github/scripts/javascript/checkov/write-checkov-step-summary.js reports/checkov-summary.json >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post plan comment on PR
         if: github.event_name == 'pull_request' && always()
@@ -136,13 +212,28 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const postComment = require('./.github/scripts/post-plan-comment.js');
+            const postComment = require('./.github/scripts/javascript/terraform/post-plan-comment.js');
             await postComment({ github, context });
 
-      - name: Fail pipeline if validate or plan failed
-        if: steps.validate.outcome == 'failure' || steps.plan.outcome == 'failure'
+      - name: Post Checkov comment on PR
+        if: github.event_name == 'pull_request' && always() && steps.checkov.outcome != 'skipped'
+        uses: actions/github-script@v7
+        env:
+          CHECKOV_OUTCOME: ${{ steps.checkov.outcome }}
+          CHECKOV_SUMMARY_FILE: reports/checkov-summary.json
+          CHECKOV_ARTIFACT_NAME: checkov-junit-${{ github.sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const postComment = require('./.github/scripts/javascript/checkov/post-checkov-comment.js');
+            await postComment({ github, context });
+
+      - name: Fail pipeline if validate, plan, or Checkov failed
+        if: steps.validate.outcome == 'failure' || steps.plan.outcome == 'failure' ||
+          steps.checkov.outcome == 'failure'
         run: |
-          echo "❌ Pipeline failed:"
+          echo "Pipeline failed:"
           [ "${{ steps.validate.outcome }}" == "failure" ] && echo "  - Terraform Validate FAILED"
-          [ "${{ steps.plan.outcome }}"     == "failure" ] && echo "  - Terraform Plan FAILED"
+          [ "${{ steps.plan.outcome }}" == "failure" ] && echo "  - Terraform Plan FAILED"
+          [ "${{ steps.checkov.outcome }}" == "failure" ] && echo "  - Checkov FAILED"
           exit 1
