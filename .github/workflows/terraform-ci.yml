@@ -214,7 +214,7 @@ jobs:
             const postComment = require('./.github/scripts/javascript/terraform/post-plan-comment.js');
             await postComment({ github, context });
 
-      - name: "💬 Post Checkov comment on PR"
+      - name: "Post Checkov comment on PR"
         if: github.event_name == 'pull_request' && always() && steps.checkov.outcome !=
           'skipped'
         uses: actions/github-script@v7
