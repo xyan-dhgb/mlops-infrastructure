@@ -25,6 +25,10 @@ NVIDIA_PLUGIN_VALUES_B64=$(base64 -w 0 modules/eks/manifests/nvidia-device-plugi
 ENVIRONMENT_NAME="${ENVIRONMENT:-dev}"
 ALERTMANAGER_IRSA_ROLE_NAME="mlops-alertmanager-sns-irsa-${ENVIRONMENT_NAME}"
 ALERT_SNS_TOPIC_NAME="mlops-eks-alerts-${ENVIRONMENT_NAME}"
+CICD_METRICS_IRSA_ROLE_NAME="mlops-cicd-metrics-exporter-irsa-${ENVIRONMENT_NAME}"
+CICD_METRICS_REPORTS_BUCKET="checkov-reports-bucket"
+CICD_METRICS_CI_REPORTS_PREFIX="terraform-ci/${ENVIRONMENT_NAME}"
+CICD_METRICS_APPLY_REPORTS_PREFIX="terraform-apply/${ENVIRONMENT_NAME}"
 
 echo "🔎 Fetching Alertmanager SNS config from AWS..."
 ALERTMANAGER_IRSA_ROLE_ARN=$(aws iam get-role \
@@ -37,6 +41,16 @@ aws sns get-topic-attributes --topic-arn "${ALERT_SNS_TOPIC_ARN}" >/dev/null
 
 echo "  IRSA: ${ALERTMANAGER_IRSA_ROLE_ARN}"
 echo "  SNS:  ${ALERT_SNS_TOPIC_ARN}"
+
+echo "🔎 Fetching CI/CD metrics exporter config from AWS..."
+CICD_METRICS_IRSA_ROLE_ARN=$(aws iam get-role \
+  --role-name "${CICD_METRICS_IRSA_ROLE_NAME}" \
+  --query "Role.Arn" --output text)
+
+echo "  IRSA:   ${CICD_METRICS_IRSA_ROLE_ARN}"
+echo "  Bucket: ${CICD_METRICS_REPORTS_BUCKET}"
+echo "  CI Prefix: ${CICD_METRICS_CI_REPORTS_PREFIX}"
+echo "  Apply Prefix: ${CICD_METRICS_APPLY_REPORTS_PREFIX}"
 
 # Render Prometheus values on the runner.
 echo "📇 Rendering Prometheus values.yaml on the runner"
@@ -100,10 +114,35 @@ fi
 echo "✅ Cloudflare placeholders replaced"
 CLOUDFLARE_RENDERED_B64=$(echo "${CLOUDFLARE_RENDERED}" | base64 -w 0)
 
+# Render CI/CD metrics exporter manifests on the runner.
+echo "📇 Rendering CI/CD metrics exporter manifests on the runner"
+CICD_METRICS_RENDER_DIR=$(mktemp -d)
+mkdir -p "${CICD_METRICS_RENDER_DIR}/manifests"
+cp modules/monitoring/cicd-metrics/exporter.py "${CICD_METRICS_RENDER_DIR}/exporter.py"
+cp modules/monitoring/cicd-metrics/manifests/service.yaml "${CICD_METRICS_RENDER_DIR}/manifests/service.yaml"
+cp modules/monitoring/cicd-metrics/manifests/servicemonitor.yaml "${CICD_METRICS_RENDER_DIR}/manifests/servicemonitor.yaml"
+sed \
+  -e "s|__CICD_METRICS_EXPORTER_IRSA_ROLE_ARN__|${CICD_METRICS_IRSA_ROLE_ARN}|g" \
+  modules/monitoring/cicd-metrics/manifests/serviceaccount.yaml.tpl \
+  > "${CICD_METRICS_RENDER_DIR}/manifests/serviceaccount.yaml"
+sed \
+  -e "s|__PIPELINE_REPORTS_BUCKET__|${CICD_METRICS_REPORTS_BUCKET}|g" \
+  -e "s|__CI_REPORTS_PREFIX__|${CICD_METRICS_CI_REPORTS_PREFIX}|g" \
+  -e "s|__CD_APPLY_REPORTS_PREFIX__|${CICD_METRICS_APPLY_REPORTS_PREFIX}|g" \
+  modules/monitoring/cicd-metrics/manifests/deployment.yaml.tpl \
+  > "${CICD_METRICS_RENDER_DIR}/manifests/deployment.yaml"
+if grep -R -qE '__[A-Z_]+__' "${CICD_METRICS_RENDER_DIR}"; then
+  echo "❌ ERROR: CI/CD metrics exporter manifests still contain unresolved placeholders:"
+  grep -R -E '__[A-Z_]+__' "${CICD_METRICS_RENDER_DIR}"
+  exit 1
+fi
+echo "✅ CI/CD metrics exporter manifests rendered"
+CICD_METRICS_B64=$(tar -C "${CICD_METRICS_RENDER_DIR}" -czf - . | base64 -w 0)
+
 
 # Upload all Helm values to the bastion.
 ssm_run 30 "🔗 Upload Helm values" \
-  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/cloudflare /tmp/helm-values/eks" \
+  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/monitoring/cicd-metrics /tmp/helm-values/cloudflare /tmp/helm-values/eks" \
   "echo '${ARGOCD_B64}' | base64 -d > /tmp/helm-values/argocd/values.yaml" \
   "echo '${MLFLOW_B64}' | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
   "echo '${PROM_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
@@ -111,6 +150,8 @@ ssm_run 30 "🔗 Upload Helm values" \
   "echo '${GRAFANA_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml" \
   "echo '${GRAFANA_DASHBOARDS_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/dashboards.tgz" \
   "tar -xzf /tmp/helm-values/monitoring/grafana/dashboards.tgz -C /tmp/helm-values/monitoring/grafana" \
+  "echo '${CICD_METRICS_B64}' | base64 -d > /tmp/helm-values/monitoring/cicd-metrics/cicd-metrics.tgz" \
+  "tar -xzf /tmp/helm-values/monitoring/cicd-metrics/cicd-metrics.tgz -C /tmp/helm-values/monitoring/cicd-metrics" \
   "echo '${NVIDIA_PLUGIN_VALUES_B64}' | base64 -d > /tmp/helm-values/eks/nvidia-device-plugin-values.yaml" \
   "# Decode rendered Alertmanager config (SNS placeholders already substituted on runner)
    echo '${ALERTMANAGER_CONFIG_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml" \
@@ -122,6 +163,11 @@ ssm_run 30 "🔗 Upload Helm values" \
   "if grep -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml; then
      echo '❌ ERROR: Uploaded Alertmanager config still contains unresolved placeholders'
      grep -E '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml
+     exit 1
+   fi" \
+  "if grep -R -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/cicd-metrics; then
+     echo '❌ ERROR: Uploaded CI/CD metrics exporter manifests still contain unresolved placeholders'
+     grep -R -E '__[A-Z_]+__' /tmp/helm-values/monitoring/cicd-metrics
      exit 1
    fi" \
   "echo '--- Rendered Alertmanager SNS config (verify) ---'" \
@@ -308,6 +354,18 @@ ssm_run 1500 "⚙️ Install Monitoring" \
    echo '✅ Alertmanager config rendered correctly'" \
   "kubectl apply -f /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml" \
   "kubectl get prometheusrule eks-alerts -n prometheus" \
+  "# Install CI/CD metrics exporter for Prometheus scraping
+   kubectl create configmap cicd-metrics-exporter-script \
+     --namespace prometheus \
+     --from-file=exporter.py=/tmp/helm-values/monitoring/cicd-metrics/exporter.py \
+     --dry-run=client -o yaml | kubectl apply -f -
+   kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/serviceaccount.yaml
+   kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/service.yaml
+   kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/servicemonitor.yaml
+   kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/deployment.yaml
+   kubectl rollout restart deployment/cicd-metrics-exporter -n prometheus 2>/dev/null || true
+   kubectl rollout status deployment/cicd-metrics-exporter -n prometheus --timeout=180s
+   kubectl get servicemonitor cicd-metrics-exporter -n prometheus" \
   "kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -" \
   "# Rebuild Grafana dashboard ConfigMaps from repo-managed JSON files
    kubectl delete configmap -n grafana -l grafana_dashboard=1 --ignore-not-found
@@ -388,6 +446,8 @@ ssm_run 60 "📝 Verify add-ons" \
   "kubectl get pods -n argocd" \
   "kubectl get pods -n mlflow" \
   "kubectl get pods -n prometheus" \
+  "kubectl get deployment cicd-metrics-exporter -n prometheus" \
+  "kubectl get servicemonitor cicd-metrics-exporter -n prometheus" \
   "kubectl get pods -n grafana" \
   "kubectl get pods -n cloudflare" \
   "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflared --tail=5"

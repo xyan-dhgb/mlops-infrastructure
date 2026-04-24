@@ -98,3 +98,8 @@ output "monitoring_eks_alerts_topic_arn" {
   description = "SNS topic ARN receiving EKS alerts"
   value       = module.monitoring.eks_alerts_topic_arn
 }
+
+output "monitoring_cicd_metrics_exporter_irsa_role_arn" {
+  description = "IAM role ARN used by the CI/CD metrics exporter for reading S3 reports"
+  value       = module.cicd_metrics.exporter_irsa_role_arn
+}

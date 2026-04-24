@@ -59,16 +59,6 @@ module "bastion" {
   cluster_name          = var.cluster_name
 }
 
-module "load_balancer_controller" {
-  source = "../../modules/load-balancer-controller"
-
-  cluster_name      = module.eks.cluster_name
-  oidc_provider_arn = module.eks.cluster_oidc_provider_arn
-  oidc_issuer_url   = module.eks.cluster_oidc_issuer_url
-
-  depends_on = [module.eks]
-}
-
 module "ecr" {
   source = "../../modules/ecr"
 
@@ -162,6 +152,18 @@ module "monitoring" {
   eks_oidc_provider_url = module.eks.cluster_oidc_issuer_url
 
   alert_email_endpoints = var.monitoring_alert_email_endpoints
+
+  depends_on = [module.eks]
+}
+
+module "cicd_metrics" {
+  source = "../../modules/monitoring/cicd-metrics"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  eks_oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  eks_oidc_provider_url = module.eks.cluster_oidc_issuer_url
 
   depends_on = [module.eks]
 }
