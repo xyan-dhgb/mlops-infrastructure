@@ -12,6 +12,7 @@ on:
       - "modules/**"
 
 permissions:
+  actions: read
   id-token: write
   contents: read
   pull-requests: write
@@ -26,23 +27,30 @@ env:
   TF_VAR_cluster_admin_principal_arns_json: ${{ vars.EKS_CLUSTER_ADMIN_PRINCIPAL_ARNS || '[]' }}
 
 jobs:
-  terraform-ci:
-    name: "Infrastructure Validation"
+  infra-validation:
+    name: "Infra Validation"
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ env.WORKING_DIR }}
+    outputs:
+      init_outcome: ${{ steps.init.outcome }}
+      import_outcome: ${{ steps.import.outcome }}
+      fmt_outcome: ${{ steps.fmt.outcome }}
+      validate_outcome: ${{ steps.validate.outcome }}
+      plan_outcome: ${{ steps.plan.outcome }}
+      checkov_outcome: ${{ steps.checkov.outcome }}
 
     steps:
       - name: "Checkout code"
         uses: actions/checkout@v4
 
-      - name: Set up Terraform
+      - name: "Set up Terraform"
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      - name: Set up Python for Checkov
+      - name: "Set up Python for Checkov"
         if: always()
         uses: actions/setup-python@v5
         with:
@@ -56,6 +64,7 @@ jobs:
           pip install "checkov==${{ env.CHECKOV_VERSION }}"
 
       - name: "Configure AWS Credentials"
+        if: always()
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -152,25 +161,131 @@ jobs:
             --output junitxml \
             --output-file-path console,reports/checkov.json,reports/checkov.junit.xml | tee reports/checkov-cli.log
 
-      - name: "Prepare Checkov report destinations"
-        if: always() && steps.checkov.outcome != 'skipped'
+      - name: "Persist infra status snapshot"
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p .ci
+          cat > .ci/infra-status.json <<EOF
+          {
+            "job": "infra-validation",
+            "generated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "init_outcome": "${{ steps.init.outcome }}",
+            "import_outcome": "${{ steps.import.outcome }}",
+            "fmt_outcome": "${{ steps.fmt.outcome }}",
+            "validate_outcome": "${{ steps.validate.outcome }}",
+            "plan_outcome": "${{ steps.plan.outcome }}",
+            "checkov_outcome": "${{ steps.checkov.outcome }}"
+          }
+          EOF
+
+      - name: "Upload infra runtime artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-ci-runtime-${{ github.sha }}
+          path: |
+            .ci/infra-status.json
+            environments/dev/plan.txt
+            environments/dev/tfplan
+            reports/checkov-cli.log
+            reports/checkov.json
+            reports/checkov.junit.xml
+          if-no-files-found: warn
+
+  reporting-metrics:
+    name: "Reporting & Metrics"
+    needs: infra-validation
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+
+      - name: "Download infra runtime artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-ci-runtime-${{ github.sha }}
+          path: ${{ github.workspace }}
+
+      - name: "Configure AWS Credentials"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: "Prepare report destinations"
+        if: always()
         run: |
           CHECKOV_S3_URI="s3://${{ env.CHECKOV_REPORTS_BUCKET }}/${{ env.CHECKOV_REPORTS_PREFIX }}/sha=${{ github.sha }}/run-id=${{ github.run_id }}/attempt=${{ github.run_attempt }}"
           echo "CHECKOV_REPORTS_S3_URI=${CHECKOV_S3_URI}" >> "$GITHUB_ENV"
 
       - name: "Build Checkov summary"
-        if: always() && steps.checkov.outcome != 'skipped'
+        if: always()
         working-directory: ${{ github.workspace }}
         env:
-          CHECKOV_OUTCOME: ${{ steps.checkov.outcome }}
+          CHECKOV_OUTCOME: ${{ needs.infra-validation.outputs.checkov_outcome }}
           CHECKOV_ARTIFACT_NAME: checkov-junit-${{ github.sha }}
         run: |
           node .github/scripts/javascript/checkov/build-checkov-summary.js \
             reports/checkov.json \
             reports/checkov-summary.json
 
+      - name: "Collect CI run metadata"
+        if: always()
+        id: ci_metadata
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const headSha = context.payload.pull_request?.head?.sha ?? process.env.GITHUB_SHA;
+            const branch = context.payload.pull_request?.head?.ref ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? '';
+
+            const { data: workflowRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(process.env.GITHUB_RUN_ID),
+            });
+
+            const { data: commit } = await github.rest.repos.getCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: headSha,
+            });
+
+            core.setOutput('branch', branch || workflowRun.head_branch || '');
+            core.setOutput('head_sha', headSha);
+            core.setOutput('run_started_at', workflowRun.run_started_at || '');
+            core.setOutput(
+              'commit_timestamp',
+              commit.commit?.committer?.date || commit.commit?.author?.date || ''
+            );
+
+      - name: "Build CI pipeline metrics report"
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          ENVIRONMENT_NAME: dev
+          PIPELINE_JOB_NAME: infra-validation
+          PIPELINE_BRANCH: ${{ steps.ci_metadata.outputs.branch }}
+          PIPELINE_SHA: ${{ steps.ci_metadata.outputs.head_sha }}
+          RUN_STARTED_AT: ${{ steps.ci_metadata.outputs.run_started_at }}
+          COMMIT_TIMESTAMP: ${{ steps.ci_metadata.outputs.commit_timestamp }}
+          INFRA_VALIDATION_RESULT: ${{ needs.infra-validation.result }}
+          INIT_OUTCOME: ${{ needs.infra-validation.outputs.init_outcome }}
+          IMPORT_OUTCOME: ${{ needs.infra-validation.outputs.import_outcome }}
+          FMT_OUTCOME: ${{ needs.infra-validation.outputs.fmt_outcome }}
+          VALIDATE_OUTCOME: ${{ needs.infra-validation.outputs.validate_outcome }}
+          PLAN_OUTCOME: ${{ needs.infra-validation.outputs.plan_outcome }}
+          CHECKOV_OUTCOME: ${{ needs.infra-validation.outputs.checkov_outcome }}
+          CHECKOV_SUMMARY_FILE: reports/checkov-summary.json
+        run: |
+          node .github/scripts/javascript/checkov/build-ci-pipeline-metrics.js reports/ci-pipeline-metrics.json
+
       - name: "Upload Checkov JUnit artifact"
-        if: always() && steps.checkov.outcome != 'skipped'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: checkov-junit-${{ github.sha }}
@@ -179,33 +294,44 @@ jobs:
           if-no-files-found: warn
 
       - name: "Upload Checkov JSON reports to S3"
-        if: always() && steps.checkov.outcome != 'skipped'
+        if: always()
         working-directory: ${{ github.workspace }}
         run: |
-          aws s3 cp reports/checkov-cli.log "${CHECKOV_REPORTS_S3_URI}/checkov-cli.log" --content-type text/plain
-          aws s3 cp reports/checkov.json "${CHECKOV_REPORTS_S3_URI}/checkov.json" --content-type application/json
-          aws s3 cp reports/checkov-summary.json "${CHECKOV_REPORTS_S3_URI}/checkov-summary.json" --content-type application/json
-          echo "Checkov JSON reports uploaded to ${CHECKOV_REPORTS_S3_URI}"
+          if [ -f reports/checkov-cli.log ]; then
+            aws s3 cp reports/checkov-cli.log "${CHECKOV_REPORTS_S3_URI}/checkov-cli.log" --content-type text/plain
+          fi
+
+          if [ -f reports/checkov.json ]; then
+            aws s3 cp reports/checkov.json "${CHECKOV_REPORTS_S3_URI}/checkov.json" --content-type application/json
+          fi
+
+          if [ -f reports/checkov-summary.json ]; then
+            aws s3 cp reports/checkov-summary.json "${CHECKOV_REPORTS_S3_URI}/checkov-summary.json" --content-type application/json
+          fi
+
+          aws s3 cp reports/ci-pipeline-metrics.json "${CHECKOV_REPORTS_S3_URI}/ci-pipeline-metrics.json" --content-type application/json
+          echo "CI reports uploaded to ${CHECKOV_REPORTS_S3_URI}"
 
       - name: "Upload Terraform plan to S3"
-        if: steps.plan.outcome == 'success'
+        if: always() && needs.infra-validation.outputs.plan_outcome == 'success'
+        working-directory: ${{ github.workspace }}
         run: |
-          aws s3 cp tfplan s3://kltn-s3-tfstate-dev-env/plans/dev/${{ github.sha }}/tfplan
+          aws s3 cp environments/dev/tfplan s3://kltn-s3-tfstate-dev-env/plans/dev/${{ github.sha }}/tfplan
           echo "Plan uploaded: plans/dev/${{ github.sha }}/tfplan"
 
       - name: "Publish Checkov Step Summary"
-        if: always() && steps.checkov.outcome != 'skipped'
+        if: always()
         working-directory: ${{ github.workspace }}
         run: |
           node .github/scripts/javascript/checkov/write-checkov-step-summary.js reports/checkov-summary.json >> "$GITHUB_STEP_SUMMARY"
 
       - name: "Post Terraform comment on PR"
-        if: github.event_name == 'pull_request' && always()
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         env:
-          FMT_OUTCOME: ${{ steps.fmt.outcome }}
-          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
-          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          FMT_OUTCOME: ${{ needs.infra-validation.outputs.fmt_outcome }}
+          VALIDATE_OUTCOME: ${{ needs.infra-validation.outputs.validate_outcome }}
+          PLAN_OUTCOME: ${{ needs.infra-validation.outputs.plan_outcome }}
           COMMIT_SHA: ${{ github.sha }}
           PLAN_FILE: environments/dev/plan.txt
         with:
@@ -215,11 +341,10 @@ jobs:
             await postComment({ github, context });
 
       - name: "Post Checkov comment on PR"
-        if: github.event_name == 'pull_request' && always() && steps.checkov.outcome !=
-          'skipped'
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         env:
-          CHECKOV_OUTCOME: ${{ steps.checkov.outcome }}
+          CHECKOV_OUTCOME: ${{ needs.infra-validation.outputs.checkov_outcome }}
           CHECKOV_SUMMARY_FILE: reports/checkov-summary.json
           CHECKOV_ARTIFACT_NAME: checkov-junit-${{ github.sha }}
         with:
@@ -227,3 +352,41 @@ jobs:
           script: |
             const postComment = require('./.github/scripts/javascript/checkov/post-checkov-comment.js');
             await postComment({ github, context });
+
+      - name: "Publish final CI overview"
+        if: always()
+        run: |
+          status_icon() {
+            case "$1" in
+              success) echo "✅" ;;
+              failure) echo "⚠️" ;;
+              skipped) echo "⏭️" ;;
+              cancelled) echo "🛑" ;;
+              *) echo "❔" ;;
+            esac
+          }
+
+          {
+            echo "## 🟢 CI Overview"
+            echo ""
+            echo "> ⚠️ Terraform and core infra checks are blocking. Checkov remains advisory and is reported separately."
+            echo ""
+            echo "| Job | Outcome |"
+            echo "|-----|---------|"
+            echo "| Infra Validation | $(status_icon '${{ needs.infra-validation.result }}') \`${{ needs.infra-validation.result }}\` |"
+            echo ""
+            echo "| Infra Step | Outcome |"
+            echo "|------------|---------|"
+            echo "| Terraform Init | $(status_icon '${{ needs.infra-validation.outputs.init_outcome }}') \`${{ needs.infra-validation.outputs.init_outcome }}\` |"
+            echo "| Resource Import | $(status_icon '${{ needs.infra-validation.outputs.import_outcome }}') \`${{ needs.infra-validation.outputs.import_outcome }}\` |"
+            echo "| Terraform Format | $(status_icon '${{ needs.infra-validation.outputs.fmt_outcome }}') \`${{ needs.infra-validation.outputs.fmt_outcome }}\` |"
+            echo "| Terraform Validate | $(status_icon '${{ needs.infra-validation.outputs.validate_outcome }}') \`${{ needs.infra-validation.outputs.validate_outcome }}\` |"
+            echo "| Terraform Plan | $(status_icon '${{ needs.infra-validation.outputs.plan_outcome }}') \`${{ needs.infra-validation.outputs.plan_outcome }}\` |"
+            echo "| Checkov | $(status_icon '${{ needs.infra-validation.outputs.checkov_outcome }}') \`${{ needs.infra-validation.outputs.checkov_outcome }}\` |"
+            echo ""
+
+            if [ -n "${CHECKOV_REPORTS_S3_URI:-}" ]; then
+              echo "> ☁️ Checkov reports: \`${CHECKOV_REPORTS_S3_URI}\`"
+              echo "> 📈 CI pipeline metrics JSON: \`${CHECKOV_REPORTS_S3_URI}/ci-pipeline-metrics.json\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
