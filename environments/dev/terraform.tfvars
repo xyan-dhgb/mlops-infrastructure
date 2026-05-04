@@ -17,7 +17,7 @@ node_capacity_type   = "ON_DEMAND"
 node_desired_size    = 2
 node_min_size        = 2
 node_max_size        = 4
-enable_ml_node_group = false
+enable_ml_node_group = true
 
 # Bastion Host
 bastion_instance_type    = "t3.micro"
@@ -25,13 +25,11 @@ bastion_ssh_key_name     = "bastion-host"
 bastion_allowed_ssh_cidr = "0.0.0.0/0"
 
 # Machine Learning Node Configuration (GPU for EfficientNet-B3 + XRAI training)
-# ML node group is temporarily disabled to validate EKS + Grafana provisioning.
-# Keep the original settings below for quick restore later.
-# ml_node_instance_types = ["g4dn.xlarge"] # NVIDIA T4 16GB VRAM for EfficientNet-B3 + XRAI
-# ml_node_capacity_type  = "ON_DEMAND"
-# ml_node_min_size       = 1 # Scale-to-zero when not training
-# ml_node_max_size       = 2
-# ml_node_desired_size   = 1 # Cluster Autoscaler will scale up when there is a job
+ml_node_instance_types = ["g4dn.xlarge"] # NVIDIA T4 16GB VRAM for EfficientNet-B3 + XRAI
+ml_node_capacity_type  = "ON_DEMAND"
+ml_node_min_size       = 1 # Scale-to-zero when not training
+ml_node_max_size       = 2
+ml_node_desired_size   = 1 # Cluster Autoscaler will scale up when there is a job
 
 domain_name = "kltn-argocd-ui.me"
 

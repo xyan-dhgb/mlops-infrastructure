@@ -35,11 +35,11 @@ module "eks" {
   # ML Pipeline Node Group is temporarily disabled so we can provision the base
   # EKS cluster and validate Grafana provisioning first. Keep the original
   # inputs below for quick re-enable later.
-  # ml_node_instance_types = var.ml_node_instance_types
-  # ml_node_capacity_type  = var.ml_node_capacity_type
-  # ml_node_desired_size   = var.ml_node_desired_size
-  # ml_node_min_size       = var.ml_node_min_size
-  # ml_node_max_size       = var.ml_node_max_size
+  ml_node_instance_types = var.ml_node_instance_types
+  ml_node_capacity_type  = var.ml_node_capacity_type
+  ml_node_desired_size   = var.ml_node_desired_size
+  ml_node_min_size       = var.ml_node_min_size
+  ml_node_max_size       = var.ml_node_max_size
 }
 
 # Attach Public Key in local machine to AWS 
