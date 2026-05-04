@@ -59,22 +59,6 @@ module "bastion" {
   cluster_name          = var.cluster_name
 }
 
-module "ecr" {
-  source = "../../modules/ecr"
-
-  project_name         = var.project_name
-  environment          = var.environment
-  image_tag_mutability = "MUTABLE"
-  scan_on_push         = true
-  max_image_count      = 10
-
-  tags = {
-    Project    = var.project_name
-    Team       = "mlops"
-    CostCenter = "ml-infra"
-  }
-}
-
 # EKS Access Entries
 data "aws_iam_role" "bastion_role" {
   name       = "KLTN-Bastion-Host-ssm-role"
