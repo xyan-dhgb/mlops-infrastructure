@@ -142,6 +142,7 @@ resource "aws_eks_node_group" "ml_nodes" {
   node_group_name = "${local.cluster_name}-ml-node-group"
   node_role_arn   = aws_iam_role.worker_nodes_role.arn
   subnet_ids      = var.private_subnet_ids
+  ami_type        = "AL2_x86_64_GPU" # GPU-optimized AMI with NVIDIA drivers + CUDA pre-installed
   capacity_type   = var.ml_node_capacity_type
   instance_types  = var.ml_node_instance_types
 
