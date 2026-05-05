@@ -1,0 +1,38 @@
+# Helm values for argoproj/argo-workflows.
+# The UI is kept internal; use kubectl/SSM port-forward from inside the VPC when needed.
+
+crds:
+  install: true
+  keep: true
+  full: true
+
+singleNamespace: false
+
+controller:
+  metricsConfig:
+    enabled: true
+  serviceMonitor:
+    enabled: false
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+server:
+  enabled: true
+  authModes:
+    - server
+  secure: false
+  serviceType: ClusterIP
+  ingress:
+    enabled: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"

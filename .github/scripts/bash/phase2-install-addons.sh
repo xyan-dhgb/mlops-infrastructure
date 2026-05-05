@@ -11,10 +11,16 @@ AWS_ENV_EXPORT="export HOME=/root AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' \
 AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
 AWS_DEFAULT_REGION='${AWS_REGION}'"
 
+if [ -z "${ARGOCD_UI_SECRET:-}" ]; then
+  echo "ERROR: GitHub secret ARGOCD_UI_SECRET is required for the ArgoCD admin password"
+  exit 1
+fi
+
 
 # RUNNER-SIDE: encode or render all Helm values files
 echo "📦 Encoding Helm values files..."
 ARGOCD_B64=$(base64 -w 0 modules/argocd/values.yaml)
+ARGO_WORKFLOWS_B64=$(base64 -w 0 modules/argo-workflows/values.yaml)
 MLFLOW_B64=$(base64 -w 0 modules/mlflow/values.yaml)
 GRAFANA_DASHBOARDS_B64=$(tar -C modules/monitoring/grafana -czf - dashboards | base64 -w 0)
 PROM_RULES_B64=$(base64 -w 0 modules/monitoring/prometheus/rules/eks-alerts.yaml)
@@ -142,8 +148,9 @@ CICD_METRICS_B64=$(tar -C "${CICD_METRICS_RENDER_DIR}" -czf - . | base64 -w 0)
 
 # Upload all Helm values to the bastion.
 ssm_run 30 "🔗 Upload Helm values" \
-  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/monitoring/cicd-metrics /tmp/helm-values/cloudflare /tmp/helm-values/eks" \
+  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/argo-workflows /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/monitoring/cicd-metrics /tmp/helm-values/cloudflare /tmp/helm-values/eks" \
   "echo '${ARGOCD_B64}' | base64 -d > /tmp/helm-values/argocd/values.yaml" \
+  "echo '${ARGO_WORKFLOWS_B64}' | base64 -d > /tmp/helm-values/argo-workflows/values.yaml" \
   "echo '${MLFLOW_B64}' | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
   "echo '${PROM_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
   "echo '${PROM_RULES_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml" \
@@ -185,6 +192,7 @@ ssm_run 60 "📐 Configure kubectl" \
 # Install ArgoCD.
 ssm_run 900 "⚙️ Install ArgoCD" \
   "${AWS_ENV_EXPORT}" \
+  "export ARGOCD_UI_SECRET=\"\$(echo '${ARGOCD_UI_SECRET_B64}' | base64 -d)\"" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "helm repo update argo" \
   "kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -" \
@@ -195,7 +203,33 @@ ssm_run 900 "⚙️ Install ArgoCD" \
     --force-conflicts \
     --wait --timeout 10m" \
   "kubectl rollout status deployment/argocd-server -n argocd --timeout=300s" \
+  "# ArgoCD stores admin.password as a bcrypt hash in argocd-secret.
+   ARGOCD_ADMIN_PASSWORD_HASH=\$(argocd account bcrypt --password \"\${ARGOCD_UI_SECRET}\")
+   kubectl patch secret argocd-secret -n argocd \
+     --type=merge \
+     --patch \"{\\\"stringData\\\":{\\\"admin.password\\\":\\\"\${ARGOCD_ADMIN_PASSWORD_HASH}\\\",\\\"admin.passwordMtime\\\":\\\"\$(date -u +%FT%TZ)\\\"}}\"
+   kubectl delete secret argocd-initial-admin-secret -n argocd 2>/dev/null || true
+   kubectl rollout restart deployment/argocd-server -n argocd
+   kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
+   unset ARGOCD_UI_SECRET ARGOCD_ADMIN_PASSWORD_HASH
+   echo 'ArgoCD admin password set from ARGOCD_UI_SECRET'" \
   "echo '✅ ArgoCD installed OK'"
+
+
+# Install Argo Workflows directly in phase2 so the UI can be tested before GitOps bootstrap.
+ssm_run 600 "Install Argo Workflows" \
+  "${AWS_ENV_EXPORT}" \
+  "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
+  "helm repo update argo" \
+  "kubectl create namespace argo-workflows --dry-run=client -o yaml | kubectl apply -f -" \
+  "helm upgrade --install argo-workflows argo/argo-workflows \
+    --namespace argo-workflows \
+    --version '1.0.7' \
+    --values /tmp/helm-values/argo-workflows/values.yaml \
+    --wait --timeout 10m" \
+  "kubectl rollout status deployment/argo-workflows-server -n argo-workflows --timeout=300s" \
+  "helm status argo-workflows -n argo-workflows" \
+  "echo 'Argo Workflows installed OK'"
 
 
 # Install NVIDIA Device Plugin.
@@ -281,124 +315,176 @@ ssm_run 720 "⚙️ Install MLflow" \
 
 
 # Install Monitoring (Prometheus + Grafana).
-ssm_run 1500 "⚙️ Install Monitoring" \
-  "${AWS_ENV_EXPORT}" \
-  "helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true" \
-  "helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true" \
-  "helm repo update" \
-  "kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -" \
-  "# Create (or replace) the Alertmanager config Secret BEFORE helm upgrade.
-   # This secret is referenced by alertmanagerConfigSecret in prometheus-values.yaml.
-   # Creating it here (with fully-rendered values) means Prometheus Operator picks it
-   # up directly — ArgoCD never sees the SNS/IRSA placeholders from Git.
-   echo '🔑 Creating alertmanager-sns-config secret from rendered config...'
-   kubectl create secret generic alertmanager-sns-config \
-     --namespace prometheus \
-     --from-file=alertmanager.yaml=/tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml \
-     --dry-run=client -o yaml | kubectl apply -f -
-   echo '✅ alertmanager-sns-config secret applied'
-   # Quick sanity-check: secret must NOT contain placeholders.
-   kubectl get secret alertmanager-sns-config -n prometheus \
-     -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-check.yaml
-   if grep -qE '__[A-Z_]+__' /tmp/alertmanager-check.yaml; then
-     echo '❌ ERROR: alertmanager-sns-config secret still contains unresolved placeholders'
-     grep -E '__[A-Z_]+__' /tmp/alertmanager-check.yaml
-     exit 1
-   fi
-   grep -E 'topic_arn:|region:|api_url:' /tmp/alertmanager-check.yaml
-   echo '✅ alertmanager-sns-config secret verified'" \
-  "helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-    --namespace prometheus \
-    --version '56.6.2' \
-    --values /tmp/helm-values/monitoring/prometheus/values.yaml \
-    --force-conflicts \
-    --wait --timeout 10m" \
-  "# Patch the alertmanager ServiceAccount with the correct IRSA annotation.
-   echo '🔧 Patching alertmanager-sns ServiceAccount with IRSA ARN...'
-   kubectl annotate serviceaccount alertmanager-sns \
-     -n prometheus \
-     eks.amazonaws.com/role-arn=${ALERTMANAGER_IRSA_ROLE_ARN} \
-     --overwrite
-   echo '✅ IRSA annotation patched'" \
-  "# Verify configSecret is correctly set in the Alertmanager CR.
-   # Safety net: if prometheus-values.yaml had configSecret in wrong path, patch CR directly.
-   CONFIG_SECRET=\$(kubectl get alertmanager prometheus-kube-prometheus-alertmanager \
-     -n prometheus -o jsonpath='{.spec.configSecret}' 2>/dev/null || echo '')
-   echo \"  Alertmanager CR configSecret: '\${CONFIG_SECRET}'\"
-   if [ \"\${CONFIG_SECRET}\" != 'alertmanager-sns-config' ]; then
-     echo '⚠️  configSecret not set in CR — patching directly...'
-     kubectl patch alertmanager prometheus-kube-prometheus-alertmanager \
-       -n prometheus --type=merge \
-       -p '{\"spec\":{\"configSecret\":\"alertmanager-sns-config\"}}'
-     echo '✅ Alertmanager CR patched with configSecret'
-   else
-     echo '✅ configSecret correctly set in Alertmanager CR'
-   fi" \
-  "# Restart Alertmanager to force reload of the new secret immediately.
-   echo '🔄 Restarting Alertmanager to reload config...'
-   kubectl rollout restart statefulset \
-     alertmanager-prometheus-kube-prometheus-alertmanager -n prometheus
-   kubectl rollout status statefulset \
-     alertmanager-prometheus-kube-prometheus-alertmanager -n prometheus --timeout=120s
-   echo '✅ Alertmanager restarted'" \
-  "# Final verify: check the secret that Alertmanager actually mounts.
-   echo '--- Final verify: alertmanager-sns-config secret ---'
-   kubectl get secret alertmanager-sns-config -n prometheus \
-     -o jsonpath='{.data.alertmanager\\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
-   grep -E 'api_url:|topic_arn:|region:|subject:|eks-sns' /tmp/alertmanager-rendered.yaml
-   if grep -qE '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml; then
-     echo '❌ ERROR: Alertmanager config still contains unresolved placeholders'
-     grep -E '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml
-     exit 1
-   fi
-   echo '✅ Alertmanager config rendered correctly'" \
-  "kubectl apply -f /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml" \
-  "kubectl get prometheusrule eks-alerts -n prometheus" \
-  "# Install CI/CD metrics exporter for Prometheus scraping
-   kubectl create configmap cicd-metrics-exporter-script \
-     --namespace prometheus \
-     --from-file=exporter.py=/tmp/helm-values/monitoring/cicd-metrics/exporter.py \
-     --dry-run=client -o yaml | kubectl apply -f -
-   kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/serviceaccount.yaml
-   kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/service.yaml
-   kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/servicemonitor.yaml
-   kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/deployment.yaml
-   kubectl rollout restart deployment/cicd-metrics-exporter -n prometheus 2>/dev/null || true
-   kubectl rollout status deployment/cicd-metrics-exporter -n prometheus --timeout=180s
-   kubectl get servicemonitor cicd-metrics-exporter -n prometheus" \
-  "kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -" \
-  "# Rebuild Grafana dashboard ConfigMaps from repo-managed JSON files
-   kubectl delete configmap -n grafana -l grafana_dashboard=1 --ignore-not-found
-   find /tmp/helm-values/monitoring/grafana/dashboards -maxdepth 1 -type f -name '*.json' | while read -r dashboard; do \
-     name=\$(basename \"\${dashboard}\" .json)
-     kubectl create configmap \"grafana-dashboard-\${name}\" \
-       -n grafana \
-       --from-file=\"\$(basename \"\${dashboard}\")=\${dashboard}\" \
-       --dry-run=client -o yaml | kubectl apply -f -
-     kubectl label configmap \"grafana-dashboard-\${name}\" \
-       -n grafana grafana_dashboard=1 --overwrite
-   done" \
-  "# Remove managedFields after the namespace exists so Helm can reconcile cleanly
-   for r in secret/grafana configmap/grafana deployment/grafana role/grafana; do \
-     kubectl patch \$r -n grafana \
-       --type=json \
-       -p '[{\"op\":\"remove\",\"path\":\"/metadata/managedFields\"}]' \
-       2>/dev/null || true; \
-   done
-   kubectl patch clusterrole grafana-clusterrole \
-     --type=json \
-     -p '[{\"op\":\"remove\",\"path\":\"/metadata/managedFields\"}]' \
-     2>/dev/null || true" \
-  "# Grafana values were rendered on the runner and uploaded already
-   helm upgrade --install grafana grafana/grafana \
-    --namespace grafana \
-    --version '7.3.0' \
-    --values /tmp/helm-values/monitoring/grafana/values.yaml \
-    --set adminPassword='${GRAFANA_ADMIN_PASSWORD}' \
-    --wait --timeout 5m" \
-  "kubectl get configmap -n grafana -l grafana_dashboard=1" \
-  "echo '✅ Monitoring stack installed OK'"
+MONITORING_BOOTSTRAP_CMD=$(cat <<'REMOTE_CMD'
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
+helm repo update
 
+kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -
+REMOTE_CMD
+)
+
+ALERTMANAGER_SECRET_CMD=$(cat <<'REMOTE_CMD'
+# Create the Alertmanager config Secret before Helm upgrade.
+# This prevents ArgoCD from applying unresolved SNS/IRSA placeholders from Git.
+echo 'Creating alertmanager-sns-config secret from rendered config...'
+
+kubectl create secret generic alertmanager-sns-config \
+  --namespace prometheus \
+  --from-file=alertmanager.yaml=/tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl get secret alertmanager-sns-config -n prometheus \
+  -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-check.yaml
+
+if grep -qE '__[A-Z_]+__' /tmp/alertmanager-check.yaml; then
+  echo 'ERROR: alertmanager-sns-config secret still contains unresolved placeholders'
+  grep -E '__[A-Z_]+__' /tmp/alertmanager-check.yaml
+  exit 1
+fi
+
+grep -E 'topic_arn:|region:|api_url:' /tmp/alertmanager-check.yaml
+echo 'alertmanager-sns-config secret verified'
+REMOTE_CMD
+)
+
+PROMETHEUS_HELM_CMD=$(cat <<'REMOTE_CMD'
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace prometheus \
+  --version '56.6.2' \
+  --values /tmp/helm-values/monitoring/prometheus/values.yaml \
+  --force-conflicts \
+  --wait --timeout 10m
+REMOTE_CMD
+)
+
+ALERTMANAGER_IRSA_CMD=$(cat <<REMOTE_CMD
+echo 'Patching alertmanager-sns ServiceAccount with IRSA ARN...'
+
+kubectl annotate serviceaccount alertmanager-sns \
+  -n prometheus \
+  eks.amazonaws.com/role-arn=${ALERTMANAGER_IRSA_ROLE_ARN} \
+  --overwrite
+
+echo 'IRSA annotation patched'
+REMOTE_CMD
+)
+
+ALERTMANAGER_VERIFY_CMD=$(cat <<'REMOTE_CMD'
+# Safety net: patch the Alertmanager CR if Helm values did not set configSecret.
+CONFIG_SECRET=$(kubectl get alertmanager prometheus-kube-prometheus-alertmanager \
+  -n prometheus -o jsonpath='{.spec.configSecret}' 2>/dev/null || echo '')
+
+echo "  Alertmanager CR configSecret: '${CONFIG_SECRET}'"
+if [ "${CONFIG_SECRET}" != 'alertmanager-sns-config' ]; then
+  echo 'configSecret not set in CR - patching directly...'
+  kubectl patch alertmanager prometheus-kube-prometheus-alertmanager \
+    -n prometheus --type=merge \
+    -p '{"spec":{"configSecret":"alertmanager-sns-config"}}'
+else
+  echo 'configSecret correctly set in Alertmanager CR'
+fi
+
+echo 'Restarting Alertmanager to reload config...'
+kubectl rollout restart statefulset \
+  alertmanager-prometheus-kube-prometheus-alertmanager -n prometheus
+kubectl rollout status statefulset \
+  alertmanager-prometheus-kube-prometheus-alertmanager -n prometheus --timeout=120s
+
+echo '--- Final verify: alertmanager-sns-config secret ---'
+kubectl get secret alertmanager-sns-config -n prometheus \
+  -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
+grep -E 'api_url:|topic_arn:|region:|subject:|eks-sns' /tmp/alertmanager-rendered.yaml
+
+if grep -qE '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml; then
+  echo 'ERROR: Alertmanager config still contains unresolved placeholders'
+  grep -E '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml
+  exit 1
+fi
+
+echo 'Alertmanager config rendered correctly'
+REMOTE_CMD
+)
+
+PROMETHEUS_RULES_CMD=$(cat <<'REMOTE_CMD'
+kubectl apply -f /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml
+kubectl get prometheusrule eks-alerts -n prometheus
+REMOTE_CMD
+)
+
+CICD_METRICS_CMD=$(cat <<'REMOTE_CMD'
+kubectl create configmap cicd-metrics-exporter-script \
+  --namespace prometheus \
+  --from-file=exporter.py=/tmp/helm-values/monitoring/cicd-metrics/exporter.py \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/serviceaccount.yaml
+kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/service.yaml
+kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/servicemonitor.yaml
+kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/deployment.yaml
+
+kubectl rollout restart deployment/cicd-metrics-exporter -n prometheus 2>/dev/null || true
+kubectl rollout status deployment/cicd-metrics-exporter -n prometheus --timeout=180s
+kubectl get servicemonitor cicd-metrics-exporter -n prometheus
+REMOTE_CMD
+)
+
+GRAFANA_DASHBOARDS_CMD=$(cat <<'REMOTE_CMD'
+kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -
+kubectl delete configmap -n grafana -l grafana_dashboard=1 --ignore-not-found
+
+find /tmp/helm-values/monitoring/grafana/dashboards -maxdepth 1 -type f -name '*.json' |
+while read -r dashboard; do
+  name=$(basename "${dashboard}" .json)
+
+  kubectl create configmap "grafana-dashboard-${name}" \
+    -n grafana \
+    --from-file="$(basename "${dashboard}")=${dashboard}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  kubectl label configmap "grafana-dashboard-${name}" \
+    -n grafana grafana_dashboard=1 --overwrite
+done
+REMOTE_CMD
+)
+
+GRAFANA_HELM_CMD=$(cat <<REMOTE_CMD
+# Remove managedFields after the namespace exists so Helm can reconcile cleanly.
+for resource in secret/grafana configmap/grafana deployment/grafana role/grafana; do
+  kubectl patch "\${resource}" -n grafana \
+    --type=json \
+    -p '[{"op":"remove","path":"/metadata/managedFields"}]' \
+    2>/dev/null || true
+done
+
+kubectl patch clusterrole grafana-clusterrole \
+  --type=json \
+  -p '[{"op":"remove","path":"/metadata/managedFields"}]' \
+  2>/dev/null || true
+
+helm upgrade --install grafana grafana/grafana \
+  --namespace grafana \
+  --version '7.3.0' \
+  --values /tmp/helm-values/monitoring/grafana/values.yaml \
+  --set adminPassword='${GRAFANA_ADMIN_PASSWORD}' \
+  --wait --timeout 5m
+
+kubectl get configmap -n grafana -l grafana_dashboard=1
+echo 'Monitoring stack installed OK'
+REMOTE_CMD
+)
+
+ssm_run 1500 "Install Monitoring" \
+  "${AWS_ENV_EXPORT}" \
+  "${MONITORING_BOOTSTRAP_CMD}" \
+  "${ALERTMANAGER_SECRET_CMD}" \
+  "${PROMETHEUS_HELM_CMD}" \
+  "${ALERTMANAGER_IRSA_CMD}" \
+  "${ALERTMANAGER_VERIFY_CMD}" \
+  "${PROMETHEUS_RULES_CMD}" \
+  "${CICD_METRICS_CMD}" \
+  "${GRAFANA_DASHBOARDS_CMD}" \
+  "${GRAFANA_HELM_CMD}"
 
 # Cloudflare Step 1: create namespace + secret.
 ssm_run 60 "⚙️ Cloudflare: Create Secret" \
@@ -442,8 +528,11 @@ ssm_run 300 "⚙️ Cloudflare: Helm Install" \
 ssm_run 60 "📝 Verify add-ons" \
   "${AWS_ENV_EXPORT}" \
   "helm status nvidia-device-plugin -n kube-system" \
+  "helm status argo-workflows -n argo-workflows" \
   "kubectl get pods -n kube-system -o wide | grep nvidia-device-plugin || true" \
   "kubectl get pods -n argocd" \
+  "kubectl get pods -n argo-workflows" \
+  "kubectl get svc -n argo-workflows" \
   "kubectl get pods -n mlflow" \
   "kubectl get pods -n prometheus" \
   "kubectl get deployment cicd-metrics-exporter -n prometheus" \

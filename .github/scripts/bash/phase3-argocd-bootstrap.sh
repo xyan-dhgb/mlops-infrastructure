@@ -67,9 +67,12 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
    kubectl get applications -n argocd" \
   \
   "# 7. Sync apps with automated policy by name (label selector not reliable with --core mode)
-   echo '🔄 Syncing argocd and prometheus...'
+   echo '🔄 Syncing argocd, prometheus and argo-workflows...'
    argocd app sync argocd --core || echo '⚠️ argocd sync skipped or already synced'
-   argocd app sync prometheus --core || echo '⚠️ prometheus sync skipped or already synced'" \
+   argocd app sync prometheus --core || echo '⚠️ prometheus sync skipped or already synced'
+   argocd app sync argo-workflows --core || echo '⚠️ argo-workflows sync skipped or already synced'
+   argocd app wait argo-workflows --operation --health --core --timeout 300 \
+     || echo 'argo-workflows wait timed out, continuing to final status check'" \
   \
   "# 8. Final status check
    echo '📋 Final status of all ArgoCD apps:'
