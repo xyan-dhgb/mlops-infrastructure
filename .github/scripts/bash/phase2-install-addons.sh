@@ -125,6 +125,7 @@ CLOUDFLARE_RENDERED=$(sed \
   -e "s|__ARGOCD_DOMAIN__|${ARGOCD_DOMAIN}|g" \
   -e "s|__GRAFANA_DOMAIN__|${GRAFANA_DOMAIN}|g" \
   -e "s|__MLFLOW_DOMAIN__|${MLFLOW_DOMAIN}|g" \
+  -e "s|__ARGO_WORKFLOWS_DOMAIN__|${ARGO_WORKFLOWS_DOMAIN}|g" \
   modules/cloudflare/cloudflare-values.yaml)
 if echo "${CLOUDFLARE_RENDERED}" | grep -qE '__[A-Z_]+__'; then
   echo "❌ ERROR: cloudflare-values.yaml still contains unresolved placeholders:"
