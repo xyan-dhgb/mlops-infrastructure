@@ -171,7 +171,7 @@ Kỳ vọng:
 ### Bước 4: Kiểm tra node có expose GPU không
 
 ```bash
-kubectl get nodes -o custom-columns=NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu
+kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU:.status.allocatable.nvidia\.com/gpu'
 ```
 
 Kỳ vọng:
