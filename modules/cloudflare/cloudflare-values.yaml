@@ -27,6 +27,9 @@ cloudflare:
 
   - hostname: __MLFLOW_DOMAIN__
     service: http://mlflow-server.mlflow.svc.cluster.local:5000
+
+  - hostname: __ARGO_WORKFLOWS_DOMAIN__
+    service: http://argo-workflows-server.argo-workflows.svc.cluster.local:2746
   # NOTE: catch-all "http_status:404" is auto-appended by the chart template
 
 topologySpreadConstraints:
