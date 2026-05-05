@@ -16,6 +16,20 @@ if [ -z "${ARGOCD_UI_SECRET:-}" ]; then
   exit 1
 fi
 
+ARGOCD_CLI_BIN="${RUNNER_TEMP:-/tmp}/argocd"
+if ! command -v argocd >/dev/null 2>&1; then
+  echo "Downloading ArgoCD CLI to generate admin password hash..."
+  curl -sSL -o "${ARGOCD_CLI_BIN}" \
+    "https://github.com/argoproj/argo-cd/releases/download/v2.11.3/argocd-linux-amd64"
+  chmod +x "${ARGOCD_CLI_BIN}"
+else
+  ARGOCD_CLI_BIN="$(command -v argocd)"
+fi
+
+ARGOCD_ADMIN_PASSWORD_HASH=$("${ARGOCD_CLI_BIN}" account bcrypt --password "${ARGOCD_UI_SECRET}")
+ARGOCD_ADMIN_PASSWORD_HASH_B64=$(printf '%s' "${ARGOCD_ADMIN_PASSWORD_HASH}" | base64 -w 0)
+unset ARGOCD_UI_SECRET ARGOCD_ADMIN_PASSWORD_HASH
+
 
 # RUNNER-SIDE: encode or render all Helm values files
 echo "📦 Encoding Helm values files..."
@@ -192,7 +206,6 @@ ssm_run 60 "📐 Configure kubectl" \
 # Install ArgoCD.
 ssm_run 900 "⚙️ Install ArgoCD" \
   "${AWS_ENV_EXPORT}" \
-  "export ARGOCD_UI_SECRET=\"\$(echo '${ARGOCD_UI_SECRET_B64}' | base64 -d)\"" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "helm repo update argo" \
   "kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -" \
@@ -204,15 +217,15 @@ ssm_run 900 "⚙️ Install ArgoCD" \
     --wait --timeout 10m" \
   "kubectl rollout status deployment/argocd-server -n argocd --timeout=300s" \
   "# ArgoCD stores admin.password as a bcrypt hash in argocd-secret.
-   ARGOCD_ADMIN_PASSWORD_HASH=\$(argocd account bcrypt --password \"\${ARGOCD_UI_SECRET}\")
+   ARGOCD_ADMIN_PASSWORD_HASH=\$(echo '${ARGOCD_ADMIN_PASSWORD_HASH_B64}' | base64 -d)
    kubectl patch secret argocd-secret -n argocd \
      --type=merge \
      --patch \"{\\\"stringData\\\":{\\\"admin.password\\\":\\\"\${ARGOCD_ADMIN_PASSWORD_HASH}\\\",\\\"admin.passwordMtime\\\":\\\"\$(date -u +%FT%TZ)\\\"}}\"
    kubectl delete secret argocd-initial-admin-secret -n argocd 2>/dev/null || true
    kubectl rollout restart deployment/argocd-server -n argocd
    kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
-   unset ARGOCD_UI_SECRET ARGOCD_ADMIN_PASSWORD_HASH
-   echo 'ArgoCD admin password set from ARGOCD_UI_SECRET'" \
+   unset ARGOCD_ADMIN_PASSWORD_HASH
+   echo 'ArgoCD admin password hash applied'" \
   "echo '✅ ArgoCD installed OK'"
 
 
