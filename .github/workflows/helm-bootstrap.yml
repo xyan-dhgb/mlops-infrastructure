@@ -90,7 +90,6 @@ jobs:
           | Monitoring (Prom/Grafana)    | `${{ steps.install_addons.outcome }}` |
           | Cloudflare Tunnel            | `${{ steps.install_addons.outcome }}` |
 
-          **Bastion:** `${{ env.INSTANCE_ID }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
           EOF
 
 # Tip — Get ArgoCD initial admin password:
