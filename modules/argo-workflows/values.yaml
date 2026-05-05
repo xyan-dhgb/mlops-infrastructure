@@ -8,7 +8,12 @@ crds:
 
 singleNamespace: false
 
+workflow:
+  namespace: argo-workflows
+
 controller:
+  workflowNamespaces:
+    - argo-workflows
   metricsConfig:
     enabled: true
   serviceMonitor:
