@@ -84,6 +84,7 @@ jobs:
           | Add-on                       | Status |
           |------------------------------|--------|
           | ArgoCD                       | `${{ steps.install_addons.outcome }}` |
+          | Argo Workflows               | `${{ steps.install_addons.outcome }}` |
           | NVIDIA Device Plugin         | `${{ steps.install_addons.outcome }}` |
           | MLflow                       | `${{ steps.install_addons.outcome }}` |
           | Monitoring (Prom/Grafana)    | `${{ steps.install_addons.outcome }}` |
