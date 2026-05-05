@@ -3,6 +3,11 @@ kind: Application
 metadata:
   name: prometheus
   namespace: argocd
+  annotations:
+    # ServerSideApply=true otherwise triggers ArgoCD's structured-merge diff,
+    # which can fail on newer Kubernetes status fields such as
+    # .status.terminatingReplicas.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   project: platform
   destination:
@@ -25,10 +30,10 @@ spec:
     # directly with rendered values so ArgoCD never overwrites them with __placeholders__.
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true    # REQUIRED: Prometheus CRDs exceed 262144 bytes annotation limit
+      - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
-  ignoreDifferences:
+  ignoreDifferences:  
     - group: apps
       kind: StatefulSet
       jsonPointers:
