@@ -115,13 +115,6 @@ resource "aws_eks_node_group" "main" {
     role = "general"
   }
 
-  # Taint: only pods with matching toleration will be scheduled
-  taint {
-    key    = "workload"
-    value  = "general"
-    effect = "NO_SCHEDULE"
-  }
-
   # Ensure IAM roles are created before node group
   depends_on = [
     aws_iam_role_policy_attachment.worker_nodes_policy,
