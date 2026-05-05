@@ -46,9 +46,12 @@ ssm_run() {
   shift 2 # Remove the first two parameters, and turn all the remaining parameters into an array of shell commands that the developer wants to run on the server
   local -a cmds=("$@")
 
-  # Build JSON array from command args because AWS CLI requires commands to be in JSON format
-  local json_cmds
-  json_cmds=$(printf '%s\n' "${cmds[@]}" | jq -R . | jq -sc .)
+  # Build JSON from command args while preserving each argument as one command.
+  # Some callers pass multi-line command blocks; line-based jq would split those
+  # into invalid SSM commands such as "--namespace prometheus".
+  local json_cmds parameters_json
+  json_cmds=$(jq -cn --args '$ARGS.positional' "${cmds[@]}")
+  parameters_json=$(jq -cn --argjson commands "${json_cmds}" '{commands: $commands}')
 
   echo "🔵 [${label}] Sending SSM command (timeout: ${timeout}s)..."
 
@@ -57,7 +60,7 @@ ssm_run() {
     --instance-ids "${INSTANCE_ID}" \
     --document-name "AWS-RunShellScript" \
     --timeout-seconds "${timeout}" \
-    --parameters "commands=${json_cmds}" \
+    --parameters "${parameters_json}" \
     --query "Command.CommandId" --output text)
 
   echo "🔵 CommandId: ${cmd_id}"
