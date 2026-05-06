@@ -77,6 +77,16 @@ output "node_group_status" {
   value       = module.eks.node_group_status
 }
 
+output "cpu_node_group_id" {
+  description = "EKS CPU ML node group ID"
+  value       = module.eks.cpu_node_group_id
+}
+
+output "cpu_node_group_status" {
+  description = "EKS CPU ML node group status"
+  value       = module.eks.cpu_node_group_status
+}
+
 # Connection Info
 output "configure_kubectl" {
   description = "Command to configure kubectl"

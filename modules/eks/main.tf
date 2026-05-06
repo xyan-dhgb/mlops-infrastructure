@@ -193,3 +193,51 @@ resource "aws_eks_node_group" "ml_nodes" {
     Name = "${local.cluster_name}-ml-node-group"
   }
 }
+
+resource "aws_eks_node_group" "cpu_nodes" {
+  count           = var.enable_cpu_node_group ? 1 : 0
+  cluster_name    = aws_eks_cluster.main.name
+  node_group_name = "${local.cluster_name}-cpu-node-group"
+  node_role_arn   = aws_iam_role.worker_nodes_role.arn
+  subnet_ids      = var.private_subnet_ids
+  capacity_type   = var.cpu_node_capacity_type
+  instance_types  = var.cpu_node_instance_types
+
+  # Reference the launch template so the worker node SG is attached
+  launch_template {
+    id      = aws_launch_template.eks_nodes.id
+    version = aws_launch_template.eks_nodes.latest_version
+  }
+
+  scaling_config {
+    desired_size = var.cpu_node_desired_size
+    max_size     = var.cpu_node_max_size
+    min_size     = var.cpu_node_min_size
+  }
+
+  update_config {
+    max_unavailable_percentage = 50
+  }
+
+  # Isolate CPU ML workloads from general services and GPU training pods
+  labels = {
+    role     = "cpu-ml"
+    workload = "cpu-training"
+  }
+
+  taint {
+    key    = "workload"
+    value  = "cpu"
+    effect = "NO_SCHEDULE"
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.worker_nodes_policy,
+    aws_iam_role_policy_attachment.worker_nodes_cni_policy,
+    aws_iam_role_policy_attachment.worker_nodes_registry_policy
+  ]
+
+  tags = {
+    Name = "${local.cluster_name}-cpu-node-group"
+  }
+}

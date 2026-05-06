@@ -32,14 +32,20 @@ module "eks" {
   node_max_size                   = var.node_max_size
   enable_ml_node_group            = var.enable_ml_node_group
 
-  # ML Pipeline Node Group is temporarily disabled so we can provision the base
-  # EKS cluster and validate Grafana provisioning first. Keep the original
-  # inputs below for quick re-enable later.
+  # ML GPU Pipeline Node Group
   ml_node_instance_types = var.ml_node_instance_types
   ml_node_capacity_type  = var.ml_node_capacity_type
   ml_node_desired_size   = var.ml_node_desired_size
   ml_node_min_size       = var.ml_node_min_size
   ml_node_max_size       = var.ml_node_max_size
+
+  # ML CPU Pipeline Node Group
+  enable_cpu_node_group   = var.enable_cpu_node_group
+  cpu_node_instance_types = var.cpu_node_instance_types
+  cpu_node_capacity_type  = var.cpu_node_capacity_type
+  cpu_node_desired_size   = var.cpu_node_desired_size
+  cpu_node_min_size       = var.cpu_node_min_size
+  cpu_node_max_size       = var.cpu_node_max_size
 }
 
 # Attach Public Key in local machine to AWS 

@@ -62,6 +62,16 @@ output "node_group_status" {
   value       = aws_eks_node_group.main.status
 }
 
+output "cpu_node_group_id" {
+  description = "EKS CPU ML node group ID"
+  value       = try(aws_eks_node_group.cpu_nodes[0].id, null)
+}
+
+output "cpu_node_group_status" {
+  description = "EKS CPU ML node group status"
+  value       = try(aws_eks_node_group.cpu_nodes[0].status, null)
+}
+
 output "node_launch_template_id" {
   description = "ID of the launch template used for EKS worker nodes"
   value       = aws_launch_template.eks_nodes.id

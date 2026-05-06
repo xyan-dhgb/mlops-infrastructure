@@ -128,6 +128,43 @@ variable "ml_node_max_size" {
   default     = 2
 }
 
+# CPU ML Node Configuration
+variable "enable_cpu_node_group" {
+  description = "Whether to create the optional CPU ML node group"
+  type        = bool
+  default     = false
+}
+
+variable "cpu_node_instance_types" {
+  description = "EC2 instance types for CPU ML nodes"
+  type        = list(string)
+  default     = ["c8i-flex.2xlarge"]
+}
+
+variable "cpu_node_capacity_type" {
+  description = "Capacity type for CPU ML nodes (ON_DEMAND or SPOT)"
+  type        = string
+  default     = "ON_DEMAND"
+}
+
+variable "cpu_node_desired_size" {
+  description = "Desired number of CPU ML nodes"
+  type        = number
+  default     = 1
+}
+
+variable "cpu_node_min_size" {
+  description = "Minimum number of CPU ML nodes"
+  type        = number
+  default     = 1
+}
+
+variable "cpu_node_max_size" {
+  description = "Maximum number of CPU ML nodes"
+  type        = number
+  default     = 2
+}
+
 variable "domain_name" {
   description = "Domain name"
   type        = string
