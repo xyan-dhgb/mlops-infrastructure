@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: mlops-demo-nightly
+  namespace: argo-workflows
+  labels:
+    app.kubernetes.io/name: mlops-demo
+spec:
+  schedule: "0 9 * * *"
+  timezone: Asia/Ho_Chi_Minh
+  suspend: true
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  workflowSpec:
+    workflowTemplateRef:
+      name: mlops-demo-template
+    arguments:
+      parameters:
+        - name: dataset
+          value: nightly-sample
+        - name: model
+          value: resnet18-demo
