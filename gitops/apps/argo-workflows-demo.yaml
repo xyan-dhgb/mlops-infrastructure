@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
     targetRevision: dev
-    path: gitops/mlops-pipeline
+    path: gitops/mlops-pipeline/demo
     directory:
       recurse: true
       include: "*.yaml"
