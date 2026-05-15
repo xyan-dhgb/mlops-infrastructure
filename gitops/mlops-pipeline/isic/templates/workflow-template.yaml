@@ -23,28 +23,38 @@ spec:
     - name: pipeline
       dag:
         tasks:
-          - name: download-image-dataset
-            template: download-image-dataset
-          - name: download-csv-dataset
-            template: download-csv-dataset
-          - name: create-split-manifest
-            dependencies: [download-image-dataset, download-csv-dataset]
-            template: create-split-manifest
+          # 1. Download both image dataset + CSV from Kaggle (single step, single image)
+          - name: download-data
+            template: download-data
+
+          # 2. Preprocess image and CSV in parallel — each has its own ECR image
           - name: preprocess-image
-            dependencies: [create-split-manifest]
+            dependencies: [download-data]
             template: preprocess-image
-          - name: preprocess-tabular
-            dependencies: [create-split-manifest]
-            template: preprocess-tabular
-          - name: image-dataloader
-            dependencies: [preprocess-image]
-            template: image-dataloader
-          - name: tabular-dataloader
-            dependencies: [preprocess-tabular]
-            template: tabular-dataloader
+          - name: preprocess-csv
+            dependencies: [download-data]
+            template: preprocess-csv
+
+          # 3. Shared dataloader — loads image + CSV, performs 64/16/20 split
+          #    Single script, single image, handles both modalities
+          - name: dataloader
+            dependencies: [preprocess-image, preprocess-csv]
+            template: dataloader
+
+          # 4. Build model branches in parallel from dataloader output
+          - name: build-efficientnetb3
+            dependencies: [dataloader]
+            template: build-efficientnetb3
+          - name: build-mlp
+            dependencies: [dataloader]
+            template: build-mlp
+
+          # 5. Combine branches into multimodal model (fusion head)
           - name: build-multimodal-model
-            dependencies: [image-dataloader, tabular-dataloader]
+            dependencies: [build-efficientnetb3, build-mlp]
             template: build-multimodal-model
+
+          # 6. Train → Evaluate → Gate → XAI + Register (sequential → parallel)
           - name: train
             dependencies: [build-multimodal-model]
             template: train
@@ -57,17 +67,14 @@ spec:
           - name: xai
             dependencies: [validate-metrics]
             template: xai
-          - name: register-model
-            dependencies: [validate-metrics]
-            template: register-model
 
-    # ── Step: download-image-dataset ───────────────────────────────────────────
-    # Node: general — I/O download only
-    - name: download-image-dataset
+    # ── Step: download-data ─────────────────────────────────────────────────────
+    # Node: general — download both image dataset + CSV from Kaggle in one step
+    - name: download-data
       activeDeadlineSeconds: 3600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.prepareData }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
-        command: ["python", "download_image_dataset.py"]
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.prepareData }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        command: ["python", "prepare_data.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
           - secretRef:    {name: isic-ml-secret}
@@ -77,44 +84,12 @@ spec:
       nodeSelector:
         role: general
 
-    # ── Step: download-csv-dataset ─────────────────────────────────────────────
-    # Node: general — lightweight CSV download
-    - name: download-csv-dataset
-      activeDeadlineSeconds: 1800
-      container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.prepareData }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
-        command: ["python", "download_csv_dataset.py"]
-        envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
-        resources:
-          requests: {cpu: "250m", memory: "512Mi"}
-          limits:   {cpu: "500m", memory: "1Gi"}
-      nodeSelector:
-        role: general
-
-    # ── Step: create-split-manifest ────────────────────────────────────────────
-    # Node: general — stratified split by isic_id+target, shared by both branches
-    - name: create-split-manifest
-      activeDeadlineSeconds: 1800
-      container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.prepareData }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
-        command: ["python", "create_split_manifest.py"]
-        envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
-        resources:
-          requests: {cpu: "500m", memory: "1Gi"}
-          limits:   {cpu: "1",    memory: "2Gi"}
-      nodeSelector:
-        role: general
-
-    # ── Step: preprocess-image ─────────────────────────────────────────────────
-    # Node: cpu-ml (c8i-flex.2xlarge 8vCPU/16GiB) — I/O-heavy, 400k images
+    # ── Step: preprocess-image ──────────────────────────────────────────────────
+    # Node: cpu-ml — CLAHE, Gaussian, contrast enhancement on raw images (I/O heavy)
     - name: preprocess-image
       activeDeadlineSeconds: 10800
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.preprocessImage }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessImage }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
         command: ["python", "preprocess_image.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -127,13 +102,13 @@ spec:
       tolerations:
         - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
 
-    # ── Step: preprocess-tabular ───────────────────────────────────────────────
-    # Node: cpu-ml — fit scaler/encoder on train only, transform val/test
-    - name: preprocess-tabular
+    # ── Step: preprocess-csv ────────────────────────────────────────────────────
+    # Node: cpu-ml — fit scaler/encoder on train split, transform val/test
+    - name: preprocess-csv
       activeDeadlineSeconds: 3600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.preprocessCsv }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
-        command: ["python", "preprocess_tabular.py"]
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessCsv }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        command: ["python", "preprocess_csv.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
           - secretRef:    {name: isic-ml-secret}
@@ -145,13 +120,14 @@ spec:
       tolerations:
         - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
 
-    # ── Step: image-dataloader ─────────────────────────────────────────────────
-    # Node: cpu-ml — validate image batches align with split manifest isic_ids
-    - name: image-dataloader
+    # ── Step: dataloader ────────────────────────────────────────────────────────
+    # Node: cpu-ml — shared dataloader for image + CSV, performs 64/16/20 split
+    # Single script handles both modalities and aligns isic_id across branches
+    - name: dataloader
       activeDeadlineSeconds: 3600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.dataloader }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
-        command: ["python", "image_dataloader.py"]
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.dataloader }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        command: ["python", "dataloader.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
           - secretRef:    {name: isic-ml-secret}
@@ -163,30 +139,50 @@ spec:
       tolerations:
         - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
 
-    # ── Step: tabular-dataloader ───────────────────────────────────────────────
-    # Node: cpu-ml — validate tabular batches align with split manifest
-    - name: tabular-dataloader
+    # ── Step: build-efficientnetb3 ──────────────────────────────────────────────
+    # Node: cpu-ml — build CNN branch (EfficientNetB3) from preprocessed images
+    # Runs in parallel with build-mlp
+    - name: build-efficientnetb3
       activeDeadlineSeconds: 1800
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.dataloader }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
-        command: ["python", "tabular_dataloader.py"]
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        command: ["python", "build_efficientnetb3.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
           - secretRef:    {name: isic-ml-secret}
         resources:
-          requests: {cpu: "1", memory: "2Gi"}
-          limits:   {cpu: "2", memory: "4Gi"}
+          requests: {cpu: "1", memory: "4Gi"}
+          limits:   {cpu: "2", memory: "6Gi"}
+      nodeSelector:
+        role: cpu-ml
+      tolerations:
+        - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
+
+    # ── Step: build-mlp ────────────────────────────────────────────────────────
+    # Node: cpu-ml — build tabular branch (MLP) from preprocessed CSV features
+    # Runs in parallel with build-efficientnetb3
+    - name: build-mlp
+      activeDeadlineSeconds: 900
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildMlp }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        command: ["python", "build_mlp.py"]
+        envFrom:
+          - configMapRef: {name: isic-ml-config}
+          - secretRef:    {name: isic-ml-secret}
+        resources:
+          requests: {cpu: "500m", memory: "1Gi"}
+          limits:   {cpu: "1",    memory: "2Gi"}
       nodeSelector:
         role: cpu-ml
       tolerations:
         - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
 
     # ── Step: build-multimodal-model ───────────────────────────────────────────
-    # Node: general — EfficientNetB3 + MLP + fusion head architecture definition
+    # Node: general — Concatenate EfficientNetB3 + MLP → Fusion head
     - name: build-multimodal-model
       activeDeadlineSeconds: 1800
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.buildEfficientnetb3 }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
         command: ["python", "build_multimodal_model.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -205,7 +201,7 @@ spec:
         limit: "1"
         retryPolicy: Always
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.train }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.train }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
         command: ["python", "train.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -224,7 +220,7 @@ spec:
     - name: evaluate
       activeDeadlineSeconds: 3600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.evaluate }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
         command: ["python", "evaluate.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -239,11 +235,11 @@ spec:
         - {key: workload, operator: Equal, value: "ml", effect: NoSchedule}
 
     # ── Step: validate-metrics (GATE) ──────────────────────────────────────────
-    # Node: general — exit 1 if any metric below threshold → blocks downstream
+    # Node: general — exit 1 if any metric below threshold → blocks xai + register
     - name: validate-metrics
       activeDeadlineSeconds: 600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.evaluate }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
         command: ["python", "validate_metrics.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -259,7 +255,7 @@ spec:
     - name: xai
       activeDeadlineSeconds: 7200
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.xai }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.xai }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
         command: ["python", "xai_report.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -272,19 +268,3 @@ spec:
         workload: gpu-training
       tolerations:
         - {key: workload, operator: Equal, value: "ml", effect: NoSchedule}
-
-    # ── Step: register-model ───────────────────────────────────────────────────
-    # Node: general — upload model+preprocessors+metrics to MLflow + S3
-    - name: register-model
-      activeDeadlineSeconds: 1800
-      container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.evaluate }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
-        command: ["python", "register_model.py"]
-        envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
-        resources:
-          requests: {cpu: "250m", memory: "1Gi"}
-          limits:   {cpu: "500m", memory: "2Gi"}
-      nodeSelector:
-        role: general
