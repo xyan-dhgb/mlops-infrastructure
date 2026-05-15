@@ -103,7 +103,7 @@ tabular_batch[0] = ISIC_9999999
 | 1a  | `download-image-dataset` | Tải HDF5/image dataset                               | General                                           | CPU/I/O                            |
 | 1b  | `download-csv-dataset`   | Tải CSV metadata                                     | General                                           | CPU/I/O nhẹ                        |
 | 2   | `create-split-manifest`  | Tạo split train/val/test theo `isic_id` và `target`  | General                                           | Bước chung cho cả hai nhánh        |
-| 3a  | `preprocess-image`       | Xử lý hơn 400k ảnh                                   | Xem mục preprocess bên dưới                       | CPU/I/O/RAM nặng                   |
+| 3a  | `preprocess-image`       | Xử lý hơn 10.393 mẫu ảnh                             | Xem mục preprocess bên dưới                       | CPU/I/O/RAM nặng                   |
 | 3b  | `preprocess-tabular`     | Xử lý CSV 55 cột                                     | General                                           | Fit train, transform val/test      |
 | 4a  | `image-dataloader`       | Tạo image batches theo split manifest                | General hoặc GPU tùy volume data                  | Phải dùng split manifest chung     |
 | 4b  | `tabular-dataloader`     | Tạo tabular batches theo split manifest              | General                                           | Phải dùng split manifest chung     |
@@ -113,17 +113,6 @@ tabular_batch[0] = ISIC_9999999
 | 8   | `validate-metrics`       | Metrics gate pass/fail                               | General                                           | CPU nhẹ                            |
 | 9   | `xai`                    | Grad-CAM, SHAP report                                | GPU nếu chạy nhiều sample; General nếu batch nhỏ  | SHAP có thể tốn RAM                |
 | 10  | `drift-monitor`          | Tính PSI/KS/prediction drift định kỳ                 | General                                           | CronWorkflow/CronJob               |
-
-## Preprocess hơn 400k ảnh
-
-Preprocess của dự án không còn là job nhẹ. Nó gồm:
-
-| Đầu vào       | Quy mô                             |
-| ------------- | ---------------------------------- |
-| Image         | Hơn 400k ảnh từ HDF5/source        |
-| Metadata      | CSV 55 cột                         |
-| Xử lý ảnh     | Resize, CLAHE, Gaussian, normalize |
-| Xử lý tabular | Impute, IQR clip, encode, scale    |
 
 ### Có nên đưa preprocess qua GPU node?
 
@@ -165,26 +154,6 @@ resources:
 ```
 
 Nếu muốn đảm bảo không tranh GPU với training, hãy dùng workflow dependency: `preprocess` phải xong trước `train`, hoặc schedule preprocess trên general node.
-
-### Code preprocess image nên hỗ trợ
-
-| Yêu cầu                                                    | Lý do                                |
-| ---------------------------------------------------------- | ------------------------------------ |
-| `SHARD_ID`, `TOTAL_SHARDS` hoặc `START_INDEX`, `END_INDEX` | Chia 400k ảnh thành nhiều phần       |
-| `SKIP_EXISTING=true`                                       | Retry không xử lý lại output đã có   |
-| Streaming/chunking                                         | Không load toàn bộ ảnh vào RAM       |
-| Checkpoint/progress file                                   | Biết shard nào đã xong               |
-| Output theo shard                                          | Dễ resume và debug                   |
-| Output manifest có `isic_id`                               | Để join chính xác với tabular branch |
-
-Ví dụ chia shard:
-
-| Shard | Range ảnh       |
-| ----- | --------------- |
-| `000` | `0 - 19999`     |
-| `001` | `20000 - 39999` |
-| `002` | `40000 - 59999` |
-| ...   | ...             |
 
 ## ML pipeline đề xuất
 
@@ -278,139 +247,6 @@ mlops-infr/
 | `cronworkflow-drift-monitor.yaml` | Drift monitor định kỳ                        |
 | `application.yaml`                | ArgoCD Application sync các manifest         |
 
-## Argo Workflows skeleton
-
-Đây là khung ý tưởng, cần thay image/env/path theo hệ thống thật:
-
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: WorkflowTemplate
-metadata:
-  name: isic-ml-pipeline
-  namespace: isic-ml
-spec:
-  entrypoint: pipeline
-  serviceAccountName: isic-ml-workflow
-  templates:
-    - name: pipeline
-      dag:
-        tasks:
-          - name: download-image-dataset
-            template: download-image-dataset
-          - name: download-csv-dataset
-            template: download-csv-dataset
-          - name: create-split-manifest
-            dependencies: [download-image-dataset, download-csv-dataset]
-            template: create-split-manifest
-          - name: preprocess-image
-            dependencies: [create-split-manifest]
-            template: preprocess-image
-          - name: preprocess-tabular
-            dependencies: [create-split-manifest]
-            template: preprocess-tabular
-          - name: image-dataloader
-            dependencies: [preprocess-image]
-            template: image-dataloader
-          - name: tabular-dataloader
-            dependencies: [preprocess-tabular]
-            template: tabular-dataloader
-          - name: build-multimodal-model
-            dependencies: [image-dataloader, tabular-dataloader]
-            template: build-multimodal-model
-          - name: train
-            dependencies: [build-multimodal-model]
-            template: train
-          - name: evaluate
-            dependencies: [train]
-            template: evaluate
-          - name: validate-metrics
-            dependencies: [evaluate]
-            template: validate-metrics
-          - name: xai
-            dependencies: [validate-metrics]
-            template: xai
-          - name: register-model
-            dependencies: [validate-metrics]
-            template: register-model
-
-    - name: download-image-dataset
-      container:
-        image: <ecr>/isic2024-download-image:<tag>
-        envFrom:
-          - configMapRef:
-              name: isic-ml-config
-        resources:
-          requests:
-            cpu: "500m"
-            memory: "1Gi"
-          limits:
-            cpu: "1"
-            memory: "2Gi"
-      nodeSelector:
-        nodepool: general
-
-    - name: preprocess-image
-      container:
-        image: <ecr>/isic2024-preprocess-image:<tag>
-        envFrom:
-          - configMapRef:
-              name: isic-ml-config
-        resources:
-          requests:
-            cpu: "3"
-            memory: "12Gi"
-          limits:
-            cpu: "4"
-            memory: "15Gi"
-      nodeSelector:
-        nodepool: gpu
-      tolerations:
-        - key: nvidia.com/gpu
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
-
-    - name: preprocess-tabular
-      container:
-        image: <ecr>/isic2024-preprocess-tabular:<tag>
-        envFrom:
-          - configMapRef:
-              name: isic-ml-config
-        resources:
-          requests:
-            cpu: "500m"
-            memory: "2Gi"
-          limits:
-            cpu: "2"
-            memory: "4Gi"
-      nodeSelector:
-        nodepool: general
-
-    - name: train
-      container:
-        image: <ecr>/isic2024-training:<tag>
-        envFrom:
-          - configMapRef:
-              name: isic-ml-config
-        resources:
-          requests:
-            cpu: "3"
-            memory: "12Gi"
-            nvidia.com/gpu: "1"
-          limits:
-            cpu: "4"
-            memory: "15Gi"
-            nvidia.com/gpu: "1"
-      nodeSelector:
-        nodepool: gpu
-        accelerator: nvidia
-      tolerations:
-        - key: nvidia.com/gpu
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
-```
-
 ## Drift monitor
 
 Sau khi training/evaluate xong, cần lưu `baseline_profile.json`. Drift monitor có thể chạy bằng `CronWorkflow`.
@@ -430,21 +266,6 @@ Ngưỡng gợi ý:
 | Cảnh báo    | `0.10 <= PSI < 0.25` hoặc `0.01 < KS p <= 0.10` |
 | Drift nặng  | `PSI >= 0.25` hoặc `KS p <= 0.01`               |
 
-## Cost và credit
-
-Bạn hiện có khoảng `$177` credit và quy trình destroy/apply mỗi ngày. Có thể dùng GPU node cho preprocess trong giai đoạn phát triển, nhưng nên đặt guard:
-
-| Guard                                                       | Lý do                                                                     |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Scale GPU node về 0 khi không chạy workflow                 | GPU là phần đốt credit nhanh nhất                                         |
-| Dùng Argo Workflow timeout                                  | Tránh job treo qua đêm                                                    |
-| Dùng resource requests/limits chặt                          | Tránh pod ăn hết node                                                     |
-| Không chạy preprocess và train đồng thời trên `g4dn.xlarge` | 1 node GPU chỉ có tài nguyên hữu hạn                                      |
-| Lưu checkpoint/shard                                        | Job fail không phải chạy lại từ đầu                                       |
-| Kiểm tra AWS Cost Explorer mỗi ngày                         | Credit có thể bị trừ bởi EBS, NAT, IPv4, EKS control plane, data transfer |
-
-Lưu ý: Nếu preprocess code không dùng GPU ops, việc đưa sang `g4dn.xlarge` chủ yếu giúp thêm CPU/RAM/local disk so với `m7i-flex.large`, không phải tăng tốc bằng GPU thật sự. Nếu muốn GPU tăng tốc preprocess, cần sửa code dùng pipeline/thư viện có GPU support.
-
 ## Thứ tự triển khai tiếp theo
 
 | Thứ tự | Việc làm                                                                                    |
@@ -457,23 +278,7 @@ Lưu ý: Nếu preprocess code không dùng GPU ops, việc đưa sang `g4dn.xla
 | 6      | Viết `WorkflowTemplate` theo hai nhánh image/tabular                                        |
 | 7      | Đưa manifest vào `mlops-infr/` và cho ArgoCD sync                                           |
 | 8      | Chạy workflow với sample nhỏ                                                                |
-| 9      | Chạy full preprocess 400k ảnh                                                               |
+| 9      | Chạy full preprocess 10k ảnh                                                                |
 | 10     | Chạy train/evaluate/validate                                                                |
 | 11     | Lưu/register model lên MLflow/S3                                                            |
 | 12     | Thêm CronWorkflow drift monitor nếu cần                                                     |
-
-## Kết luận
-
-Hướng tối ưu cho bài toán hiện tại là:
-
-```text
-ArgoCD sync manifests
-        +
-Argo Workflows run ML pipeline
-        +
-S3/MLflow store artifacts, split manifest and metrics
-        +
-GPU node only for train/evaluate/xai, preprocess tạm thời nếu cần
-```
-
-Với 400k ảnh, điểm cần ưu tiên không phải là thêm service public mà là làm preprocess image có khả năng shard, retry, resume và theo dõi được. Với multimodal model, điểm sống còn là giữ `isic_id` xuyên suốt để image branch và tabular branch luôn align đúng sample khi concatenate. Khi pipeline đã ổn định, GPU node nên chỉ được bật khi workflow cần chạy, rồi scale về 0 sau khi xong.
