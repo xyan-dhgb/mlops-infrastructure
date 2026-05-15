@@ -67,7 +67,25 @@ jobs:
 
       # Phase 4: Inject AWS_ACCOUNT_ID into ArgoCD Application Helm parameters
       # Logic is in .github/scripts/bash/phase4-inject-account.sh
-      - name: "Phase 4: Set Helm parameters — ECR registry & IRSA role ARN"
+      - name: "Set up Terraform (for reading outputs)"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: "Phase 4 (pre): Read IRSA role ARN from Terraform output"
+        id: tf_output
+        working-directory: environments/${{ github.event.inputs.environment }}
+        run: |
+          terraform init -reconfigure -input=false -no-color > /dev/null
+          ROLE_ARN=$(terraform output -raw ml_pipeline_irsa_role_arn)
+          echo "ML_PIPELINE_IRSA_ROLE_ARN=${ROLE_ARN}" >> "$GITHUB_ENV"
+          echo "ℹ️ IRSA Role ARN: ${ROLE_ARN}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+      - name: "Phase 4: Set Helm parameters - ECR registry & IRSA role ARN"
         id: patch_isic_pipeline
         run: |
           chmod +x .github/scripts/bash/ssm-run.sh .github/scripts/bash/phase4-inject-account.sh
@@ -79,7 +97,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-
+          ML_PIPELINE_IRSA_ROLE_ARN: ${{ env.ML_PIPELINE_IRSA_ROLE_ARN }}
 
       # Summary
       - name: Post bootstrap summary
@@ -92,7 +110,4 @@ jobs:
           |------------------------------|--------|
           | AppProject & App-of-Apps     | `${{ steps.argocd_bootstrap.outcome }}` |
           | ISIC Pipeline Helm params    | `${{ steps.patch_isic_pipeline.outcome }}` |
-
-          **Bastion:** `${{ env.INSTANCE_ID }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
           EOF
-
