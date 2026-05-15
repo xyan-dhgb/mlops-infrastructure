@@ -1,0 +1,40 @@
+# This Application deploys:
+#   - Namespace kltn-mul-mlops
+#   - ServiceAccount + RBAC for workflow executor
+#   - ConfigMap + Secret for pipeline config
+#   - WorkflowTemplate (DAG 10 steps)
+#   - CronWorkflow (drift monitor)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: isic-ml-pipeline
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: isic-ml-pipeline
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+    targetRevision: dev
+    path: gitops/mlops-pipeline/isic
+    helm:
+      valueFiles:
+        - values.yaml
+      # global.ecrRegistry and global.irsaRoleArn are patched by argocd-bootstrap.yml
+      # via: kubectl patch application isic-ml-pipeline -n argocd --type merge \
+      #        -p '{"spec":{"source":{"helm":{"parameters":[...]}}}}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kltn-mul-mlops
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
