@@ -6,7 +6,8 @@ metadata:
   labels:
     {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
 spec:
-  schedule: {{ .Values.drift.schedule | quote }}
+  schedules:
+    - {{ .Values.drift.schedule | quote }}
   timezone: "UTC"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
