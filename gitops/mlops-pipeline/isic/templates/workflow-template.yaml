@@ -2,17 +2,14 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: isic-ml-pipeline
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+  namespace: { { .Values.global.namespace } }
+  labels: { { include "isic-ml-pipeline.labels" . | nindent 4 } }
 spec:
   serviceAccountName: isic-ml-workflow
   entrypoint: pipeline
   activeDeadlineSeconds: 21600
-  retryStrategy:
-    limit: "2"
-    retryPolicy: Always
-
+  # No global retryStrategy - any failed step fails the workflow immediately.
+  # Add per-template retryStrategy only on steps where retry makes sense (e.g. train).
 
   templates:
     # ── DAG ────────────────────────────────────────────────────────────────────
@@ -65,11 +62,11 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.prepareData }}"
         command: ["python", "download_dataset.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "500m", memory: "1Gi"}
-          limits:   {cpu: "1",    memory: "2Gi"}
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits: { cpu: "1", memory: "2Gi" }
       nodeSelector:
         role: general
 
@@ -81,15 +78,15 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessImage }}"
         command: ["python", "preprocess_image.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "6", memory: "12Gi"}
-          limits:   {cpu: "8", memory: "15Gi"}
+          requests: { cpu: "6", memory: "12Gi" }
+          limits: { cpu: "8", memory: "15Gi" }
       nodeSelector:
         role: cpu-ml
       tolerations:
-        - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
 
     # ── Step: preprocess-csv ────────────────────────────────────────────────────
     # Node: cpu-ml — fit scaler/encoder on train split, transform val/test
@@ -99,15 +96,15 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessCsv }}"
         command: ["python", "preprocess_csv.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "2", memory: "4Gi"}
-          limits:   {cpu: "4", memory: "8Gi"}
+          requests: { cpu: "2", memory: "4Gi" }
+          limits: { cpu: "4", memory: "8Gi" }
       nodeSelector:
         role: cpu-ml
       tolerations:
-        - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
 
     # ── Step: dataloader ────────────────────────────────────────────────────────
     # Node: cpu-ml — shared dataloader for image + CSV, performs 64/16/20 split
@@ -118,15 +115,15 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.dataloader }}"
         command: ["python", "dataloader.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "2", memory: "4Gi"}
-          limits:   {cpu: "4", memory: "8Gi"}
+          requests: { cpu: "2", memory: "4Gi" }
+          limits: { cpu: "4", memory: "8Gi" }
       nodeSelector:
         role: cpu-ml
       tolerations:
-        - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
 
     # ── Step: build-efficientnetb3 ──────────────────────────────────────────────
     # Node: cpu-ml — build CNN branch (EfficientNetB3) from preprocessed images
@@ -137,15 +134,15 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}"
         command: ["python", "build_efficientnetB3.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "1", memory: "4Gi"}
-          limits:   {cpu: "2", memory: "6Gi"}
+          requests: { cpu: "1", memory: "4Gi" }
+          limits: { cpu: "2", memory: "6Gi" }
       nodeSelector:
         role: cpu-ml
       tolerations:
-        - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
 
     # ── Step: build-mlp ────────────────────────────────────────────────────────
     # Node: cpu-ml — build tabular branch (MLP) from preprocessed CSV features
@@ -156,16 +153,15 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildMlp }}"
         command: ["python", "build_mlp.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "500m", memory: "1Gi"}
-          limits:   {cpu: "1",    memory: "2Gi"}
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits: { cpu: "1", memory: "2Gi" }
       nodeSelector:
         role: cpu-ml
       tolerations:
-        - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
-
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
 
     # ── Step: train ────────────────────────────────────────────────────────────
     # Node: gpu (g4dn.xlarge NVIDIA T4) — Phase1 frozen + Phase2 fine-tune
@@ -178,16 +174,16 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.train }}"
         command: ["python", "train.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "3", memory: "12Gi", nvidia.com/gpu: "1"}
-          limits:   {cpu: "4", memory: "15Gi", nvidia.com/gpu: "1"}
+          requests: { cpu: "3", memory: "12Gi", nvidia.com/gpu: "1" }
+          limits: { cpu: "4", memory: "15Gi", nvidia.com/gpu: "1" }
       nodeSelector:
         role: ml-pipeline
         workload: gpu-training
       tolerations:
-        - {key: workload, operator: Equal, value: "ml", effect: NoSchedule}
+        - { key: workload, operator: Equal, value: "ml", effect: NoSchedule }
 
     # ── Step: evaluate ─────────────────────────────────────────────────────────
     # Node: gpu — AUC/pAUC/F1/Recall + threshold tuning on full test set
@@ -197,17 +193,16 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}"
         command: ["python", "evaluate.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "2", memory: "8Gi",  nvidia.com/gpu: "1"}
-          limits:   {cpu: "3", memory: "10Gi", nvidia.com/gpu: "1"}
+          requests: { cpu: "2", memory: "8Gi", nvidia.com/gpu: "1" }
+          limits: { cpu: "3", memory: "10Gi", nvidia.com/gpu: "1" }
       nodeSelector:
         role: ml-pipeline
         workload: gpu-training
       tolerations:
-        - {key: workload, operator: Equal, value: "ml", effect: NoSchedule}
-
+        - { key: workload, operator: Equal, value: "ml", effect: NoSchedule }
 
     # ── Step: xai ──────────────────────────────────────────────────────────────
     # Node: gpu — Grad-CAM (image branch) + SHAP (tabular branch) report
@@ -217,13 +212,13 @@ spec:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.xai }}"
         command: ["python", "xai.py"]
         envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
         resources:
-          requests: {cpu: "2", memory: "8Gi",  nvidia.com/gpu: "1"}
-          limits:   {cpu: "3", memory: "12Gi", nvidia.com/gpu: "1"}
+          requests: { cpu: "2", memory: "8Gi", nvidia.com/gpu: "1" }
+          limits: { cpu: "3", memory: "12Gi", nvidia.com/gpu: "1" }
       nodeSelector:
         role: ml-pipeline
         workload: gpu-training
       tolerations:
-        - {key: workload, operator: Equal, value: "ml", effect: NoSchedule}
+        - { key: workload, operator: Equal, value: "ml", effect: NoSchedule }
