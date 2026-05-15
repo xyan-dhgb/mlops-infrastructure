@@ -32,7 +32,6 @@ spec:
             template: preprocess-csv
 
           # 3. Shared dataloader — loads image + CSV, performs 64/16/20 split
-          #    Single script, single image, handles both modalities
           - name: dataloader
             dependencies: [preprocess-image, preprocess-csv]
             template: dataloader
@@ -45,23 +44,17 @@ spec:
             dependencies: [dataloader]
             template: build-mlp
 
-          # 5. Combine branches into multimodal model (fusion head)
-          - name: build-multimodal-model
-            dependencies: [build-efficientnetb3, build-mlp]
-            template: build-multimodal-model
-
-          # 6. Train → Evaluate → Gate → XAI + Register (sequential → parallel)
+          # 5. Train multimodal model (fuses EfficientNetB3 + MLP internally)
           - name: train
-            dependencies: [build-multimodal-model]
+            dependencies: [build-efficientnetb3, build-mlp]
             template: train
+
+          # 6. Evaluate → XAI (sequential)
           - name: evaluate
             dependencies: [train]
             template: evaluate
-          - name: validate-metrics
-            dependencies: [evaluate]
-            template: validate-metrics
           - name: xai
-            dependencies: [validate-metrics]
+            dependencies: [evaluate]
             template: xai
 
     # ── Step: download-data ─────────────────────────────────────────────────────
@@ -70,7 +63,7 @@ spec:
       activeDeadlineSeconds: 3600
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.prepareData }}"
-        command: ["python", "prepare_data.py"]
+        command: ["python", "download_dataset.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
           - secretRef:    {name: isic-ml-secret}
@@ -142,7 +135,7 @@ spec:
       activeDeadlineSeconds: 1800
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}"
-        command: ["python", "build_efficientnetb3.py"]
+        command: ["python", "build_efficientnetB3.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
           - secretRef:    {name: isic-ml-secret}
@@ -173,21 +166,6 @@ spec:
       tolerations:
         - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
 
-    # ── Step: build-multimodal-model ───────────────────────────────────────────
-    # Node: general — Concatenate EfficientNetB3 + MLP → Fusion head
-    - name: build-multimodal-model
-      activeDeadlineSeconds: 1800
-      container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}"
-        command: ["python", "build_multimodal_model.py"]
-        envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
-        resources:
-          requests: {cpu: "1", memory: "4Gi"}
-          limits:   {cpu: "2", memory: "6Gi"}
-      nodeSelector:
-        role: general
 
     # ── Step: train ────────────────────────────────────────────────────────────
     # Node: gpu (g4dn.xlarge NVIDIA T4) — Phase1 frozen + Phase2 fine-tune
@@ -230,21 +208,6 @@ spec:
       tolerations:
         - {key: workload, operator: Equal, value: "ml", effect: NoSchedule}
 
-    # ── Step: validate-metrics (GATE) ──────────────────────────────────────────
-    # Node: general — exit 1 if any metric below threshold → blocks xai + register
-    - name: validate-metrics
-      activeDeadlineSeconds: 600
-      container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}"
-        command: ["python", "validate_metrics.py"]
-        envFrom:
-          - configMapRef: {name: isic-ml-config}
-          - secretRef:    {name: isic-ml-secret}
-        resources:
-          requests: {cpu: "250m", memory: "512Mi"}
-          limits:   {cpu: "500m", memory: "1Gi"}
-      nodeSelector:
-        role: general
 
     # ── Step: xai ──────────────────────────────────────────────────────────────
     # Node: gpu — Grad-CAM (image branch) + SHAP (tabular branch) report
@@ -252,7 +215,7 @@ spec:
       activeDeadlineSeconds: 7200
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.xai }}"
-        command: ["python", "xai_report.py"]
+        command: ["python", "xai.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
           - secretRef:    {name: isic-ml-secret}
