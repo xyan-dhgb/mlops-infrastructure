@@ -113,3 +113,8 @@ output "monitoring_cicd_metrics_exporter_irsa_role_arn" {
   description = "IAM role ARN used by the CI/CD metrics exporter for reading S3 reports"
   value       = module.cicd_metrics.exporter_irsa_role_arn
 }
+
+output "ml_pipeline_irsa_role_arn" {
+  description = "IAM role ARN for isic-ml-workflow ServiceAccount (IRSA)"
+  value       = module.argo_workflows_iam.ml_pipeline_irsa_role_arn
+}

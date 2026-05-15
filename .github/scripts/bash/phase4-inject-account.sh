@@ -12,7 +12,9 @@ AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
 AWS_DEFAULT_REGION='${AWS_REGION}'"
 
 ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-IRSA_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/isic-ml-pipeline-irsa"
+# Prefer ML_PIPELINE_IRSA_ROLE_ARN injected by CI (terraform output);
+# fall back to constructing from the Terraform naming convention.
+IRSA_ROLE_ARN="${ML_PIPELINE_IRSA_ROLE_ARN:-arn:aws:iam::${AWS_ACCOUNT_ID}:role/KLTN-Project-DEV-ml-pipeline-irsa-dev}"
 
 HELM_PARAMS_JSON="{\"spec\":{\"source\":{\"helm\":{\"parameters\":[\
 {\"name\":\"global.ecrRegistry\",\"value\":\"${ECR_REGISTRY}\"},\
