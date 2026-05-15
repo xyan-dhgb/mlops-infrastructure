@@ -157,3 +157,16 @@ module "cicd_metrics" {
 
   depends_on = [module.eks]
 }
+
+# IRSA role for Argo Workflows ML Pipeline (isic-ml-workflow ServiceAccount)
+module "argo_workflows_iam" {
+  source = "../../modules/argo-workflows/iam"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  eks_oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  eks_oidc_provider_url = module.eks.cluster_oidc_issuer_url
+
+  depends_on = [module.eks]
+}
