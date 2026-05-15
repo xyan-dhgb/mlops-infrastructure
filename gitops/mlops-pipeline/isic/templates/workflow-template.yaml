@@ -13,10 +13,6 @@ spec:
     limit: "2"
     retryPolicy: Always
 
-  arguments:
-    parameters:
-      - name: IMAGE_TAG
-        value: {{ .Values.global.imageTag | quote }}
 
   templates:
     # ── DAG ────────────────────────────────────────────────────────────────────
@@ -73,7 +69,7 @@ spec:
     - name: download-data
       activeDeadlineSeconds: 3600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.prepareData }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.prepareData }}"
         command: ["python", "prepare_data.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -89,7 +85,7 @@ spec:
     - name: preprocess-image
       activeDeadlineSeconds: 10800
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessImage }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessImage }}"
         command: ["python", "preprocess_image.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -107,7 +103,7 @@ spec:
     - name: preprocess-csv
       activeDeadlineSeconds: 3600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessCsv }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessCsv }}"
         command: ["python", "preprocess_csv.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -126,7 +122,7 @@ spec:
     - name: dataloader
       activeDeadlineSeconds: 3600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.dataloader }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.dataloader }}"
         command: ["python", "dataloader.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -145,7 +141,7 @@ spec:
     - name: build-efficientnetb3
       activeDeadlineSeconds: 1800
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}"
         command: ["python", "build_efficientnetb3.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -164,7 +160,7 @@ spec:
     - name: build-mlp
       activeDeadlineSeconds: 900
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildMlp }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildMlp }}"
         command: ["python", "build_mlp.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -182,7 +178,7 @@ spec:
     - name: build-multimodal-model
       activeDeadlineSeconds: 1800
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}"
         command: ["python", "build_multimodal_model.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -201,7 +197,7 @@ spec:
         limit: "1"
         retryPolicy: Always
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.train }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.train }}"
         command: ["python", "train.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -220,7 +216,7 @@ spec:
     - name: evaluate
       activeDeadlineSeconds: 3600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}"
         command: ["python", "evaluate.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -239,7 +235,7 @@ spec:
     - name: validate-metrics
       activeDeadlineSeconds: 600
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}"
         command: ["python", "validate_metrics.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}
@@ -255,7 +251,7 @@ spec:
     - name: xai
       activeDeadlineSeconds: 7200
       container:
-        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.xai }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.xai }}"
         command: ["python", "xai_report.py"]
         envFrom:
           - configMapRef: {name: isic-ml-config}

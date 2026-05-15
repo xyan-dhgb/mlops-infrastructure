@@ -5,24 +5,21 @@ global:
   irsaRoleArn: "PATCH_IRSA_ROLE_ARN"
   # Single ECR repository - all images use tag format: <image-name>-<timestamp>
   ecrRepository: "kltn-mutimodal-images"
-  # Base timestamp - CI injects this per build
-  imageTag: "20260512-1457"
   awsRegion: "ap-southeast-1"
   namespace: "kltn-mul-mlops"
 
-# ECR Image Names
-# Matches image names pushed to ECR by the CI/CD pipeline
+# ECR Image Tags (full tag = <image-name>-<timestamp>, per-image timestamps from ECR)
 images:
-  prepareData:          "prepare-data"
-  preprocessImage:      "preprocess-image"
-  preprocessCsv:        "preprocess-csv"
-  dataloader:           "dataloader"
-  buildEfficientnetb3:  "build-model-efficientnetb3"
-  buildMlp:             "build-model-mlp"
-  train:                "train"
-  evaluate:             "evaluate"
-  xai:                  "xai"
-  driftMonitor:         "drift-monitor"
+  prepareData:          "prepare-data-20260512-1455"
+  preprocessImage:      "preprocess-image-20260512-1455"
+  preprocessCsv:        "preprocess-csv-20260512-1455"
+  dataloader:           "dataloader-20260512-1456"
+  buildEfficientnetb3:  "build-model-efficientnetb3-20260512-1456"
+  buildMlp:             "build-model-mlp-20260512-1456"
+  train:                "train-20260512-1457"
+  evaluate:             "evaluate-20260512-1457"
+  xai:                  "xai-20260512-1457"
+  driftMonitor:         "drift-monitor-20260512-1500"
 
 # Pipeline Infrastructure
 pipeline:
