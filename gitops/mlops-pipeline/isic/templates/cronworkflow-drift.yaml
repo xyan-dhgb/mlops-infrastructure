@@ -43,7 +43,7 @@ spec:
       - name: tabular-drift-check
         activeDeadlineSeconds: 3600
         container:
-          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.preprocessCsv }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.driftMonitor }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
           command: ["python", "drift_tabular.py"]
           envFrom:
             - configMapRef: {name: isic-ml-config}
@@ -60,7 +60,7 @@ spec:
       - name: prediction-drift-check
         activeDeadlineSeconds: 3600
         container:
-          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.evaluate }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.driftMonitor }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
           command: ["python", "drift_prediction.py"]
           envFrom:
             - configMapRef: {name: isic-ml-config}
@@ -77,7 +77,7 @@ spec:
       - name: drift-report-generate
         activeDeadlineSeconds: 600
         container:
-          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.images.evaluate }}:{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
+          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.driftMonitor }}-{{ "{{" }}workflow.parameters.IMAGE_TAG{{ "}}" }}"
           command: ["python", "drift_report.py"]
           envFrom:
             - configMapRef: {name: isic-ml-config}
