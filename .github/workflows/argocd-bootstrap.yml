@@ -65,6 +65,22 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
+      # Phase 4: Inject AWS_ACCOUNT_ID into ArgoCD Application Helm parameters
+      # Logic is in .github/scripts/bash/phase4-inject-account.sh
+      - name: "Phase 4: Set Helm parameters — ECR registry & IRSA role ARN"
+        id: patch_isic_pipeline
+        run: |
+          chmod +x .github/scripts/bash/ssm-run.sh .github/scripts/bash/phase4-inject-account.sh
+          bash .github/scripts/bash/phase4-inject-account.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          INSTANCE_ID: ${{ env.INSTANCE_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+
       # Summary
       - name: Post bootstrap summary
         if: always()
@@ -75,6 +91,8 @@ jobs:
           | Component                    | Status |
           |------------------------------|--------|
           | AppProject & App-of-Apps     | `${{ steps.argocd_bootstrap.outcome }}` |
+          | ISIC Pipeline Helm params    | `${{ steps.patch_isic_pipeline.outcome }}` |
 
           **Bastion:** `${{ env.INSTANCE_ID }}` &nbsp;|&nbsp; **EKS Cluster:** `${{ github.event.inputs.eks_cluster_name }}`
           EOF
+
