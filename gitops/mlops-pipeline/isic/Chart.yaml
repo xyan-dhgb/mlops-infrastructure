@@ -1,0 +1,13 @@
+apiVersion: v2
+name: isic-ml-pipeline
+description: KLTN ISIC MLOps pipeline with Argo Workflows on EKS
+type: application
+version: 0.1.0
+appVersion: "20260512-1457"
+keywords:
+  - mlops
+  - argo-workflows
+  - multimodal
+  - isic2024
+maintainers:
+  - name: KLTN Team
