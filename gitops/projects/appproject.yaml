@@ -24,6 +24,8 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: cloudflare
       server: https://kubernetes.default.svc
+    - namespace: kltn-mul-mlops
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: "*"
       kind: "*"

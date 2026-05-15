@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: isic-ml-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+data:
+  # ── AWS ──────────────────────────────────────────────────────────────────────
+  AWS_REGION: {{ .Values.global.awsRegion | quote }}
+  ECR_REGISTRY: {{ .Values.global.ecrRegistry | quote }}
+
+  # ── MLflow ───────────────────────────────────────────────────────────────────
+  MLFLOW_TRACKING_URI: {{ .Values.pipeline.mlflowTrackingUri | quote }}
+  MLFLOW_EXPERIMENT_NAME: {{ .Values.pipeline.mlflowExperimentName | quote }}
+  MLFLOW_ENABLE: {{ .Values.pipeline.mlflowEnable | quote }}
+  MLFLOW_REGISTER_MODEL: {{ .Values.pipeline.mlflowRegisterModel | quote }}
+
+  # ── S3 Storage ────────────────────────────────────────────────────────────────
+  # Bucket: s3://kltn-isic-2024-colab/
+  # Actual top-level folders: raw/, preprocessed/, splits/, features/
+  S3_BUCKET:              {{ .Values.pipeline.s3Bucket | quote }}
+
+  # Top-level prefixes
+  S3_RAW_PREFIX:          {{ .Values.pipeline.s3.rawPrefix | quote }}
+  S3_PREPROCESSED_PREFIX: {{ .Values.pipeline.s3.preprocessedPrefix | quote }}
+  S3_SPLITS_PREFIX:       {{ .Values.pipeline.s3.splitsPrefix | quote }}
+  S3_FEATURES_PREFIX:     {{ .Values.pipeline.s3.featuresPrefix | quote }}
+
+  # Split subfolders (create-split-manifest writes here, all downstream reads)
+  S3_SPLIT_TRAIN_PREFIX:  {{ .Values.pipeline.s3.splitTrainPrefix | quote }}
+  S3_SPLIT_VAL_PREFIX:    {{ .Values.pipeline.s3.splitValPrefix | quote }}
+  S3_SPLIT_TEST_PREFIX:   {{ .Values.pipeline.s3.splitTestPrefix | quote }}
+
+  # Drift monitoring
+  BASELINE_KEY:           {{ .Values.pipeline.s3.baselineKey | quote }}
+  PROD_LOG_PREFIX:        {{ .Values.pipeline.s3.prodLogPrefix | quote }}
+  REPORT_PREFIX:          {{ .Values.pipeline.s3.reportPrefix | quote }}
+
+  # Artifact filenames — shared contract between all pipeline steps
+  ARTIFACT_MODEL:          {{ .Values.pipeline.s3.artifactModel | quote }}
+  ARTIFACT_PREPROCESSORS:  {{ .Values.pipeline.s3.artifactPreprocessors | quote }}
+  ARTIFACT_METRICS:        {{ .Values.pipeline.s3.artifactMetrics | quote }}
+  ARTIFACT_THRESHOLD:      {{ .Values.pipeline.s3.artifactThreshold | quote }}
+  ARTIFACT_SPLIT_INFO:     {{ .Values.pipeline.s3.artifactSplitInfo | quote }}
+  ARTIFACT_FEATURE_COLS:   {{ .Values.pipeline.s3.artifactFeatureCols | quote }}
+  ARTIFACT_IMAGE_MANIFEST: {{ .Values.pipeline.s3.artifactImageManifest | quote }}
+
+  # ── Model Performance Gates ────────────────────────────────────────────────────
+  METRIC_AUC_MIN: {{ .Values.metrics.aucMin | quote }}
+  METRIC_PAUC_MIN_TPR: {{ .Values.metrics.paucMinTpr | quote }}
+  METRIC_PAUC_MIN: {{ .Values.metrics.paucMin | quote }}
+  METRIC_F1_MIN: {{ .Values.metrics.f1Min | quote }}
+  METRIC_RECALL_MIN: {{ .Values.metrics.recallMin | quote }}
+  METRIC_PRECISION_MIN: {{ .Values.metrics.precisionMin | quote }}
+
+  # ── Threshold Tuning ───────────────────────────────────────────────────────────
+  THRESHOLD_STRATEGY: {{ .Values.threshold.strategy | quote }}
+  THRESHOLD_FIXED: {{ .Values.threshold.fixed | quote }}
+  THRESHOLD_GRID_MIN: {{ .Values.threshold.gridMin | quote }}
+  THRESHOLD_GRID_MAX: {{ .Values.threshold.gridMax | quote }}
+  THRESHOLD_GRID_STEP: {{ .Values.threshold.gridStep | quote }}
+
+  # ── Training — Common ─────────────────────────────────────────────────────────
+  # BATCH_SIZE = Phase 1 batch size; BATCH_SIZE_PHASE2 = Phase 2 (smaller for fine-tuning)
+  BATCH_SIZE: {{ .Values.training.batchSize | quote }}
+  BATCH_SIZE_PHASE2: {{ .Values.training.phase2.batchSize | quote }}
+  IMAGE_SIZE: {{ .Values.training.imageSize | quote }}
+  RANDOM_SEED: {{ .Values.training.randomSeed | quote }}
+  REDUCE_LR_PATIENCE: {{ .Values.training.reduceLrPatience | quote }}
+  OVERSAMPLE_RATIO: {{ .Values.training.oversampleRatio | quote }}
+  CLASS_WEIGHT_MAL: {{ .Values.training.classWeightMal | quote }}
+  FOCAL_GAMMA: {{ .Values.training.focalGamma | quote }}
+  FOCAL_ALPHA: {{ .Values.training.focalAlpha | quote }}
+  LOSS_TYPE: {{ .Values.training.lossType | quote }}
+
+  # ── Training — Phase 1 ────────────────────────────────────────────────────────
+  PHASE1_EPOCHS: {{ .Values.training.phase1.epochs | quote }}
+  PHASE1_LR: {{ .Values.training.phase1.lr | quote }}
+  PHASE1_PATIENCE: {{ .Values.training.phase1.patience | quote }}
+  PHASE1_MONITOR: {{ .Values.training.phase1.monitor | quote }}
+  REDUCE_LR_FACTOR_P1: {{ .Values.training.phase1.reduceLrFactor | quote }}
+  REDUCE_LR_MIN_P1: {{ .Values.training.phase1.reduceLrMin | quote }}
+
+  # ── Training — Phase 2 ────────────────────────────────────────────────────────
+  PHASE2_EPOCHS: {{ .Values.training.phase2.epochs | quote }}
+  PHASE2_LR: {{ .Values.training.phase2.lr | quote }}
+  PHASE2_PATIENCE: {{ .Values.training.phase2.patience | quote }}
+  PHASE2_MONITOR: {{ .Values.training.phase2.monitor | quote }}
+  REDUCE_LR_FACTOR_P2: {{ .Values.training.phase2.reduceLrFactor | quote }}
+  REDUCE_LR_MIN_P2: {{ .Values.training.phase2.reduceLrMin | quote }}
+  FINE_TUNE_FROM_LAYER: {{ .Values.training.phase2.fineTuneFromLayer | quote }}
+
+  # ── Data Preprocessing ────────────────────────────────────────────────────────
+  VAL_SIZE: {{ .Values.preprocessing.valSize | quote }}
+  TEST_SIZE: {{ .Values.preprocessing.testSize | quote }}
+  IMPUTER_STRATEGY: {{ .Values.preprocessing.imputer | quote }}
+  SCALER_TYPE: {{ .Values.preprocessing.scaler | quote }}
+  APPLY_CLAHE: {{ .Values.preprocessing.applyClahe | quote }}
+  APPLY_GAUSSIAN: {{ .Values.preprocessing.applyGaussian | quote }}
+  ENHANCE_CONTRAST: {{ .Values.preprocessing.enhanceContrast | quote }}
+
+  # ── XAI ───────────────────────────────────────────────────────────────────────
+  NUM_GRADCAM_SAMPLES: {{ .Values.xai.numGradcamSamples | quote }}
+  NUM_SHAP_SAMPLES: {{ .Values.xai.numShapSamples | quote }}
+  SHAP_BACKGROUND: {{ .Values.xai.shapBackground | quote }}
+
+  # ── Drift Monitor ─────────────────────────────────────────────────────────────
+  PSI_THRESHOLD: {{ .Values.drift.psiThreshold | quote }}
+  PSI_WARNING_THRESHOLD: {{ .Values.drift.psiWarning | quote }}
+  KS_P_THRESHOLD: {{ .Values.drift.ksPThreshold | quote }}
+  PREDICTION_RATE_DRIFT_THRESHOLD: {{ .Values.drift.predictionRateDrift | quote }}
+  CHECK_INTERVAL_HOURS: {{ .Values.drift.checkIntervalHours | quote }}
+  DRIFT_PSI_N_BINS: {{ .Values.drift.psiNBins | quote }}

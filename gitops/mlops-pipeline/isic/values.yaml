@@ -1,0 +1,138 @@
+# Global
+global:
+  # Injected by CI from secrets.AWS_ACCOUNT_ID
+  ecrRegistry: "PATCH_ECR_REGISTRY"
+  irsaRoleArn: "PATCH_IRSA_ROLE_ARN"
+  # Image tag matches the CI/CD build timestamp
+  imageTag: "20260512-1457"
+  awsRegion: "ap-southeast-1"
+  namespace: "kltn-mul-mlops"
+
+# ECR Image Names
+# Matches image names pushed to ECR by the CI/CD pipeline
+images:
+  prepareData:          "prepare-data"
+  preprocessImage:      "preprocess-image"
+  preprocessCsv:        "preprocess-csv"
+  dataloader:           "dataloader"
+  buildEfficientnetb3:  "build-model-efficientnetb3"
+  train:                "train"
+  evaluate:             "evaluate"
+  xai:                  "xai"
+
+# Pipeline Infrastructure
+pipeline:
+  s3Bucket: "kltn-isic-2024-colab"
+  mlflowTrackingUri: "https://kltn-mlflow-ui.tech/"
+  mlflowExperimentName: "isic2024-multimodal"
+  mlflowEnable: "true"
+  mlflowRegisterModel: "true"
+
+  # S3 paths — matches actual bucket: s3://kltn-isic-2024-colab/
+  # Top-level folders: raw/, preprocessed/, splits/, features/
+  s3:
+    # Top-level prefixes
+    rawPrefix:           "raw/"
+    preprocessedPrefix:  "preprocessed/"
+    splitsPrefix:        "splits/"
+    featuresPrefix:      "features/"
+
+    # splits/ subfolders (splits/train/, splits/val/, splits/test/)
+    splitTrainPrefix:    "splits/train/"
+    splitValPrefix:      "splits/val/"
+    splitTestPrefix:     "splits/test/"
+
+    # Drift monitoring paths (under preprocessed/)
+    baselineKey:         "preprocessed/baseline_profile.json"
+    prodLogPrefix:       "preprocessed/production_logs/"
+    reportPrefix:        "preprocessed/drift_reports/"
+
+    # Artifact filenames — contract between pipeline steps (do NOT rename)
+    artifactModel:         "multimodal_model.h5"
+    artifactPreprocessors: "preprocessors.pkl"
+    artifactMetrics:       "metrics.json"
+    artifactThreshold:     "best_threshold.txt"
+    artifactSplitInfo:     "split_info.json"
+    artifactFeatureCols:   "feature_cols.json"
+    artifactImageManifest: "image_manifest.csv"
+
+# Model Performance Gates
+metrics:
+  aucMin: "0.80"
+  paucMinTpr: "0.80"       # TPR floor for partial AUC (ISIC 2024 primary metric)
+  paucMin: "0.10"
+  f1Min: "0.30"
+  recallMin: "0.60"
+  precisionMin: "0.20"
+
+# Threshold Tuning
+threshold:
+  strategy: "f1"           # f1 | precision | fixed
+  fixed: "0.5"
+  gridMin: "0.05"
+  gridMax: "0.95"
+  gridStep: "0.01"
+
+# Training Hyperparameters
+training:
+  batchSize: "32"
+  imageSize: "224"
+  randomSeed: "42"
+
+  # Phase 1: Backbone frozen, Focal Loss, oversample malignant
+  phase1:
+    epochs: "30"
+    lr: "1e-3"
+    patience: "8"
+    monitor: "val_auc"
+    reduceLrFactor: "0.5"
+    reduceLrMin: "1e-6"
+
+  # Phase 2: Unfreeze backbone, fine-tune
+  phase2:
+    epochs: "20"
+    lr: "1e-4"
+    patience: "5"
+    monitor: "val_auc"
+    reduceLrFactor: "0.3"
+    reduceLrMin: "1e-7"
+    fineTuneFromLayer: "300"
+    batchSize: "16"          # Phase 2 uses smaller batch for fine-tuning
+
+  reduceLrPatience: "3"
+
+  # Imbalance handling
+  oversampleRatio: "0.25"
+  classWeightMal: "1.2"
+
+  # Focal Loss
+  focalGamma: "2.0"
+  focalAlpha: "0.75"       # 0.75 from train_config.yaml (authoritative)
+  lossType: "focal"
+
+# Data Preprocessing and Split
+preprocessing:
+  valSize: "0.1"
+  testSize: "0.2"
+  imputer: "median"
+  scaler: "standard"        # standard | minmax | none
+  applyClahe: "true"
+  applyGaussian: "true"
+  enhanceContrast: "1.2"
+
+# Explainability
+xai:
+  numGradcamSamples: "20"
+  numShapSamples: "100"
+  shapBackground: "50"
+
+# Drift Monitor
+drift:
+  psiThreshold: "0.25"         # CRITICAL
+  psiWarning: "0.10"           # WARNING
+  ksPThreshold: "0.05"
+  predictionRateDrift: "0.05"
+  checkIntervalHours: "24"
+  psiNBins: "10"
+  # CronWorkflow schedule (UTC)
+  schedule: "0 2 * * *"        # 02:00 UTC = 09:00 ICT

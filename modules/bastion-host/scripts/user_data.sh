@@ -16,7 +16,8 @@ apt-get install -y \
   curl \
   jq \
   gpg \
-  apt-transport-https
+  apt-transport-https \
+  neofetch
 
 # 3. Install AWS CLI v2
 echo "--- Installing AWS CLI v2 ---"
