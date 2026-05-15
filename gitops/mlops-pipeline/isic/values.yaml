@@ -3,7 +3,9 @@ global:
   # Injected by CI from secrets.AWS_ACCOUNT_ID
   ecrRegistry: "PATCH_ECR_REGISTRY"
   irsaRoleArn: "PATCH_IRSA_ROLE_ARN"
-  # Image tag matches the CI/CD build timestamp
+  # Single ECR repository - all images use tag format: <image-name>-<timestamp>
+  ecrRepository: "kltn-mutimodal-images"
+  # Base timestamp - CI injects this per build
   imageTag: "20260512-1457"
   awsRegion: "ap-southeast-1"
   namespace: "kltn-mul-mlops"
@@ -16,9 +18,11 @@ images:
   preprocessCsv:        "preprocess-csv"
   dataloader:           "dataloader"
   buildEfficientnetb3:  "build-model-efficientnetb3"
+  buildMlp:             "build-model-mlp"
   train:                "train"
   evaluate:             "evaluate"
   xai:                  "xai"
+  driftMonitor:         "drift-monitor"
 
 # Pipeline Infrastructure
 pipeline:
@@ -28,7 +32,7 @@ pipeline:
   mlflowEnable: "true"
   mlflowRegisterModel: "true"
 
-  # S3 paths — matches actual bucket: s3://kltn-isic-2024-colab/
+  # S3 paths - matches actual bucket: s3://kltn-isic-2024-colab/
   # Top-level folders: raw/, preprocessed/, splits/, features/
   s3:
     # Top-level prefixes
@@ -47,7 +51,7 @@ pipeline:
     prodLogPrefix:       "preprocessed/production_logs/"
     reportPrefix:        "preprocessed/drift_reports/"
 
-    # Artifact filenames — contract between pipeline steps (do NOT rename)
+    # Artifact filenames - contract between pipeline steps (do NOT rename)
     artifactModel:         "multimodal_model.h5"
     artifactPreprocessors: "preprocessors.pkl"
     artifactMetrics:       "metrics.json"
