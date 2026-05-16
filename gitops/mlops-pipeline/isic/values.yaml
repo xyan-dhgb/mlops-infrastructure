@@ -15,7 +15,7 @@ images:
   preprocessCsv:        "preprocess-csv-20260516-0742"
   dataloader:           "dataloader-20260516-1727"
   buildEfficientnetb3:  "build-model-efficientnetb3-20260516-0743"
-  buildMlp:             "build-model-mlp-20260516-0744"
+  buildMlp:             "build-model-mlp-20260516-1815"
   train:                "train-20260516-0744"
   evaluate:             "evaluate-20260516-0744"
   xai:                  "xai-20260516-0745"
