@@ -2,8 +2,8 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: isic-ml-pipeline
-  namespace: {{ .Values.global.namespace }}
-  labels: {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+  namespace: { { .Values.global.namespace } }
+  labels: { { include "isic-ml-pipeline.labels" . | nindent 4 } }
 spec:
   serviceAccountName: isic-ml-workflow
   entrypoint: pipeline
@@ -118,8 +118,8 @@ spec:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
         resources:
-          requests: { cpu: "2", memory: "4Gi" }
-          limits: { cpu: "4", memory: "8Gi" }
+          requests: { cpu: "2", memory: "8Gi" }
+          limits: { cpu: "4", memory: "16Gi" }
       nodeSelector:
         role: cpu-ml
       tolerations:
