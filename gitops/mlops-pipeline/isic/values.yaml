@@ -11,7 +11,7 @@ global:
 # ECR Image Tags (full tag = <image-name>-<timestamp>, per-image timestamps from ECR)
 images:
   prepareData:          "prepare-data-20260516-0742"
-  preprocessImage:      "preprocess-image-20260516-0742"
+  preprocessImage:      "preprocess-image-20260516-1659"
   preprocessCsv:        "preprocess-csv-20260516-0742"
   dataloader:           "dataloader-20260516-1645"
   buildEfficientnetb3:  "build-model-efficientnetb3-20260516-0743"
