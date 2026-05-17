@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ArtifactRepository
+metadata:
+  name: argo-logs-repository
+  namespace: { { .Values.global.namespace } }
+  labels: { { include "isic-ml-pipeline.labels" . | nindent 4 } }
+  annotations:
+    # Required for archiveLogs: true to work without explicit artifact config per-workflow.
+    workflows.argoproj.io/default-artifact-repository: "true"
+spec:
+  s3:
+    bucket: kltn-argo-workflows-logs
+    region: { { .Values.global.awsRegion } }
+    useSDKCreds: true
+    insecure: false
+    # Log key format: YYYY/MM/DD/<workflow-name>/<pod-name>/main.log
+    keyFormat: >-
+      {{`{{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/{{workflow.creationTimestamp.d}}/{{workflow.name}}/{{pod.name}}/main.log`}}
