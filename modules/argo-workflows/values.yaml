@@ -18,11 +18,18 @@ controller:
     enabled: true
   serviceMonitor:
     enabled: false
-  # Stream container logs to S3 during execution so they remain accessible
-  # after the pod is GC'd (fixes "unable to retrieve container logs for containerd://")
-  workflowDefaults:
-    spec:
+  # workflow-controller-configmap: inject artifact repository config so archiveLogs
+  # can upload container logs to S3 (fixes "unable to retrieve container logs for containerd://")
+  config: |
+    artifactRepository:
       archiveLogs: true
+      s3:
+        bucket: kltn-argo-workflows-logs
+        region: ap-southeast-1
+        useSDKCreds: true
+        insecure: false
+        keyFormat: >-
+          {{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/{{workflow.creationTimestamp.d}}/{{workflow.name}}/{{pod.name}}/main.log
   resources:
     requests:
       cpu: "250m"
@@ -30,19 +37,6 @@ controller:
     limits:
       cpu: "1"
       memory: "1Gi"
-
-# Global artifact repository - used by archiveLogs to persist container logs
-artifactRepository:
-  archiveLogs: true
-  s3:
-    bucket: kltn-argo-workflows-logs
-    region: ap-southeast-1
-    # Use IRSA (IAM Roles for Service Accounts) - no static credentials needed
-    useSDKCreds: true
-    insecure: false
-    # Key prefix pattern: <workflow-name>/<pod-name>/main.log
-    keyFormat: "{{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/\
-      {{workflow.creationTimestamp.d}}/{{workflow.name}}/{{pod.name}}/main.log"
 
 server:
   enabled: true
