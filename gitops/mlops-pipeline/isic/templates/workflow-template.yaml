@@ -2,8 +2,8 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: isic-ml-pipeline
-  namespace: { { .Values.global.namespace } }
-  labels: { { include "isic-ml-pipeline.labels" . | nindent 4 } }
+  namespace: {{ .Values.global.namespace }}
+  labels: {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
 spec:
   serviceAccountName: isic-ml-workflow
   entrypoint: pipeline
