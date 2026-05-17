@@ -65,6 +65,22 @@ data "aws_iam_policy_document" "ml_pipeline_s3" {
       "arn:aws:s3:::kltn-isic-2024-colab/*",
     ]
   }
+
+  # Write-only access to Argo Workflows log archive bucket
+  # Required for archiveLogs: true - Argo streams container logs here during execution
+  statement {
+    sid    = "WriteArgoLogs"
+    effect = "Allow"
+    actions = [
+      "s3:PutObject",
+      "s3:GetObject",
+      "s3:ListBucket",
+    ]
+    resources = [
+      "arn:aws:s3:::kltn-argo-workflows-logs",
+      "arn:aws:s3:::kltn-argo-workflows-logs/*",
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "ml_pipeline_s3" {
