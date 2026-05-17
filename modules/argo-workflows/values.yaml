@@ -18,18 +18,6 @@ controller:
     enabled: true
   serviceMonitor:
     enabled: false
-  # workflow-controller-configmap: inject artifact repository config so archiveLogs
-  # can upload container logs to S3 (fixes "unable to retrieve container logs for containerd://")
-  config: |
-    artifactRepository:
-      archiveLogs: true
-      s3:
-        bucket: kltn-argo-workflows-logs
-        region: ap-southeast-1
-        useSDKCreds: true
-        insecure: false
-        keyFormat: >-
-          {{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/{{workflow.creationTimestamp.d}}/{{workflow.name}}/{{pod.name}}/main.log
   resources:
     requests:
       cpu: "250m"
@@ -53,3 +41,23 @@ server:
     limits:
       cpu: "500m"
       memory: "512Mi"
+
+# Artifact repository for archiveLogs — persists container logs to S3.
+# Fixes: "unable to retrieve container logs for containerd://"
+#
+artifactRepository:
+  archiveLogs: true
+  s3:
+    bucket: kltn-argo-workflows-logs
+    region: ap-southeast-1
+    useSDKCreds: true
+    insecure: false
+    keyFormat: "{{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/{{workflow.creationTimestamp.d}}/{{workflow.name}}/{{pod.name}}/main.log"
+    # Dummy secret — not used at runtime when useSDKCreds: true (IRSA takes precedence).
+    # Required only to prevent nil pointer in Helm chart template line 81.
+    accessKeySecret:
+      name: "argo-workflows-irsa-placeholder"
+      key: "accessKey"
+    secretKeySecret:
+      name: "argo-workflows-irsa-placeholder"
+      key: "secretKey"
