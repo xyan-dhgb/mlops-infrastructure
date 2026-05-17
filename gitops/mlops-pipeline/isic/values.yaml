@@ -16,7 +16,7 @@ images:
   dataloader:           "dataloader-20260516-2111"
   buildEfficientnetb3:  "build-model-efficientnetb3-20260516-0743"
   buildMlp:             "build-mlp-20260516-2113"
-  train:                "train-20260516-0744"
+  train:                "train-20260517-1435"
   evaluate:             "evaluate-20260516-0744"
   xai:                  "xai-20260516-0745"
   driftMonitor:         "drift-monitor-20260516-0747"
