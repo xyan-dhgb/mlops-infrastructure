@@ -45,6 +45,9 @@ server:
 # Artifact repository for archiveLogs — persists container logs to S3.
 # Fixes: "unable to retrieve container logs for containerd://"
 #
+# accessKeySecret/secretKeySecret with empty name: satisfies Helm chart template
+# (prevents nil pointer at line 81) but Argo will NOT mount any Secret volume
+# because name is empty. useSDKCreds: true tells Argo to use IRSA instead.
 artifactRepository:
   archiveLogs: true
   s3:
@@ -53,11 +56,9 @@ artifactRepository:
     useSDKCreds: true
     insecure: false
     keyFormat: "{{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/{{workflow.creationTimestamp.d}}/{{workflow.name}}/{{pod.name}}/main.log"
-    # Dummy secret — not used at runtime when useSDKCreds: true (IRSA takes precedence).
-    # Required only to prevent nil pointer in Helm chart template line 81.
     accessKeySecret:
-      name: "argo-workflows-irsa-placeholder"
+      name: ""
       key: "accessKey"
     secretKeySecret:
-      name: "argo-workflows-irsa-placeholder"
+      name: ""
       key: "secretKey"
