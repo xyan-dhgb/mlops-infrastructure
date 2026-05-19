@@ -2,8 +2,8 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: isic-ml-pipeline
-  namespace: {{ .Values.global.namespace }}
-  labels: {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+  namespace: { { .Values.global.namespace } }
+  labels: { { include "isic-ml-pipeline.labels" . | nindent 4 } }
 spec:
   serviceAccountName: isic-ml-workflow
   entrypoint: pipeline
@@ -169,13 +169,20 @@ spec:
 
     # ── Step: train ────────────────────────────────────────────────────────────
     # Node: gpu (g4dn.xlarge: 16 GB RAM, 1× NVIDIA T4 16 GB VRAM)
-    # Memory-safe: train.py dùng np.memmap + tf.data generator
-    # ephemeral-storage: X_img_train (3.7 GiB) + X_img_val (~1 GiB) + checkpoints
+    # metrics: train.py expose Prometheus metrics tại port 8000 (/metrics)
+    #          PodMonitor "ml-train-pod-monitor" scrape label metrics=enabled
     - name: train
       activeDeadlineSeconds: 14400
+      metadata:
+        labels:
+          metrics: enabled # PodMonitor discover pod này để scrape port 8000
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.train }}"
         command: ["python", "train.py"]
+        ports:
+          - name: metrics # Prometheus scrape target
+            containerPort: 8000
+            protocol: TCP
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
