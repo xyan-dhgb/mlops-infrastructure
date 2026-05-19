@@ -128,6 +128,12 @@ variable "ml_node_max_size" {
   default     = 2
 }
 
+variable "ml_node_disk_size_gb" {
+  description = "Root EBS volume size (GiB) for ML GPU nodes"
+  type        = number
+  default     = 50
+}
+
 # CPU ML Node Configuration
 variable "enable_cpu_node_group" {
   description = "Whether to create the optional CPU ML node group"
