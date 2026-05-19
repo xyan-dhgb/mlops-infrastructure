@@ -56,12 +56,12 @@ resource "aws_eks_cluster" "main" {
   }
 }
 
-# Launch Template for Worker Nodes - required to attach a custom security group.
+# Launch Template for General Worker Nodes - required to attach a custom security group.
 # Without this, nodes only inherit the auto-created cluster SG and cannot be
 # reached by the control plane on kubelet port 10250.
 resource "aws_launch_template" "eks_nodes" {
   name_prefix = "${local.cluster_name}-node-lt-"
-  description = "Launch template for EKS worker nodes"
+  description = "Launch template for EKS general worker nodes"
 
   # Attach the custom worker node security group IN ADDITION to the cluster SG.
   # The cluster SG is added automatically by EKS when using a managed node group.
@@ -80,6 +80,38 @@ resource "aws_launch_template" "eks_nodes" {
 
   tags = {
     Name = "${local.cluster_name}-node-lt"
+  }
+}
+
+# Solution: increase the root EBS volume to 50 GiB so pods have ample scratch space.
+resource "aws_launch_template" "eks_ml_nodes" {
+  name_prefix = "${local.cluster_name}-ml-node-"
+  description = "Launch template for ML GPU worker nodes with enlarged root volume"
+
+  vpc_security_group_ids = [var.worker_nodes_security_group_id]
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.ml_node_disk_size_gb
+      volume_type           = "gp3"
+      delete_on_termination = true
+      encrypted             = true
+    }
+  }
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "${local.cluster_name}-ml-node"
   }
 }
 
@@ -151,10 +183,10 @@ resource "aws_eks_node_group" "ml_nodes" {
   capacity_type   = var.ml_node_capacity_type
   instance_types  = var.ml_node_instance_types
 
-  # Reference the launch template so the worker node SG is attached
+  # Use the dedicated ML launch template with enlarged (50 GiB) root EBS volume.
   launch_template {
-    id      = aws_launch_template.eks_nodes.id
-    version = aws_launch_template.eks_nodes.latest_version
+    id      = aws_launch_template.eks_ml_nodes.id
+    version = aws_launch_template.eks_ml_nodes.latest_version
   }
 
   # Node group scaling configuration - starts at 0, Cluster Autoscaler scales up on demand
