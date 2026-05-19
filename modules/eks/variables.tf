@@ -99,6 +99,12 @@ variable "ml_node_max_size" {
   default     = 2
 }
 
+variable "ml_node_disk_size_gb" {
+  description = "Root EBS volume size (GiB) for ML GPU nodes. Default 50 GiB covers: ~15 GiB TF+CUDA image layers + 10 GiB ephemeral-storage request + 5 GiB Argo archiveLogs staging + OS/kubelet buffer. Prevents kubelet ephemeral-storage eviction on g4dn.xlarge (default AMI root is only 20 GiB)."
+  type        = number
+  default     = 50
+}
+
 # Optional CPU ML Node Group toggle
 variable "enable_cpu_node_group" {
   description = "Whether to create the optional CPU ML node group"
