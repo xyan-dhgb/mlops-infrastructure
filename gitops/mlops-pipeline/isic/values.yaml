@@ -10,16 +10,16 @@ global:
 
 # ECR Image Tags (full tag = <image-name>-<timestamp>, per-image timestamps from ECR)
 images:
-  prepareData:          "prepare-data-20260519-0930"
-  preprocessImage:      "preprocess-image-20260519-0930"
-  preprocessCsv:        "preprocess-csv-20260519-0930"
-  dataloader:           "dataloader-20260519-0931"
-  buildEfficientnetb3:  "build-model-efficientnetb3-20260519-0932"
-  buildMlp:             "build-model-mlp-20260519-0932"
-  train:                "train-20260519-0933"
-  evaluate:             "evaluate-20260519-0934"
-  xai:                  "xai-20260519-0934"
-  driftMonitor:         "drift-monitor-20260519-0938"
+  prepareData:          "prepare-data-20260519-1017"
+  preprocessImage:      "preprocess-image-20260519-1017"
+  preprocessCsv:        "preprocess-csv-20260519-1017"
+  dataloader:           "dataloader-20260519-1018"
+  buildEfficientnetb3:  "build-model-efficientnetb3-20260519-1018"
+  buildMlp:             "build-model-mlp-20260519-1018"
+  train:                "train-20260519-1019"
+  evaluate:             "evaluate-20260519-1020"
+  xai:                  "xai-20260519-1021"
+  driftMonitor:         "drift-monitor-20260519-1027"
 
 # Pipeline Infrastructure
 pipeline:
