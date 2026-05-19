@@ -38,6 +38,7 @@ module "eks" {
   ml_node_desired_size   = var.ml_node_desired_size
   ml_node_min_size       = var.ml_node_min_size
   ml_node_max_size       = var.ml_node_max_size
+  ml_node_disk_size_gb   = var.ml_node_disk_size_gb
 
   # ML CPU Pipeline Node Group
   enable_cpu_node_group   = var.enable_cpu_node_group
