@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argo-workflows-controller
+  namespace: prometheus
+  labels:
+    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus-stack
+spec:
+  # Tìm Service ở namespace argo-workflows có label app=workflow-controller
+  namespaceSelector:
+    matchNames:
+      - argo-workflows
+  selector:
+    matchLabels:
+      app: workflow-controller
+  endpoints:
+    - port: metrics          # port name trên Service của workflow-controller
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
