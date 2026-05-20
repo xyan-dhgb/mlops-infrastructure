@@ -46,3 +46,5 @@ terraform.rc
 new-bastion-key
 reports/
 __pycache__/
+.antigravitycli/
+.vscode/
