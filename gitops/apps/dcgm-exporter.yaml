@@ -1,0 +1,41 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dcgm-exporter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: platform
+  source:
+    repoURL: https://nvidia.github.io/dcgm-exporter/helm-charts
+    chart: dcgm-exporter
+    targetRevision: 4.8.2
+    helm:
+      releaseName: dcgm-exporter
+      values: |
+        serviceMonitor:
+          enabled: true
+          additionalLabels:
+            release: prometheus                   # match kube-prometheus-stack selector
+            app.kubernetes.io/part-of: kube-prometheus-stack
+          interval: 15s
+          scrapeTimeout: 10s
+        # Only schedule on GPU nodes (matches EKS ml_nodes node group labels)
+        nodeSelector:
+          role: ml-pipeline
+        tolerations:
+          # Tolerate the taint set on ml_nodes node group in Terraform
+          - key: workload
+            value: ml
+            operator: Equal
+            effect: NoSchedule
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
