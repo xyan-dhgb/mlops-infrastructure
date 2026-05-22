@@ -2,8 +2,8 @@ apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
   name: isic-drift-monitor
-  namespace: { { .Values.global.namespace } }
-  labels: { { include "isic-ml-pipeline.labels" . | nindent 4 } }
+  namespace: {{ .Values.global.namespace }}
+  labels: {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
 spec:
   schedules:
     - { { .Values.drift.schedule | quote } }
