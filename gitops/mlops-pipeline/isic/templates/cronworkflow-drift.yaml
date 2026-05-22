@@ -2,12 +2,11 @@ apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
   name: isic-drift-monitor
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+  namespace: { { .Values.global.namespace } }
+  labels: { { include "isic-ml-pipeline.labels" . | nindent 4 } }
 spec:
   schedules:
-    - {{ .Values.drift.schedule | quote }}
+    - { { .Values.drift.schedule | quote } }
   timezone: "UTC"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -17,69 +16,30 @@ spec:
   workflowSpec:
     serviceAccountName: isic-ml-workflow
     activeDeadlineSeconds: 7200
-    retryStrategy:
-      limit: "1"
-      retryPolicy: Always
-
     entrypoint: drift-pipeline
 
     templates:
       - name: drift-pipeline
-        dag:
-          tasks:
-            - name: tabular-drift
-              template: tabular-drift-check
-            - name: prediction-drift
-              template: prediction-drift-check
-            - name: drift-report
-              dependencies: [tabular-drift, prediction-drift]
-              template: drift-report-generate
+        steps:
+          - - name: drift-check
+              template: drift-monitor-run
 
-      # Node: cpu-ml - PSI/KS on tabular features vs baseline_profile.json
-      - name: tabular-drift-check
+      # ── Step: drift-monitor-run ─────────────────────────────────────────────
+      # drift_monitor.py đọc: baseline_profile.json
+      # drift_monitor.py ghi: drift_reports/drift_report_<date>.json + HTML
+      # Exit non-zero nếu overall_status == CRITICAL (phát hiện bởi sys.exit)
+      - name: drift-monitor-run
         activeDeadlineSeconds: 3600
         container:
           image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.driftMonitor }}"
-          command: ["python", "drift_tabular.py"]
+          command: ["python", "drift_monitor.py"]
           envFrom:
-            - configMapRef: {name: isic-ml-config}
-            - secretRef:    {name: isic-ml-secret}
+            - configMapRef: { name: isic-ml-config }
+            - secretRef: { name: isic-ml-secret }
           resources:
-            requests: {cpu: "2", memory: "4Gi"}
-            limits:   {cpu: "4", memory: "8Gi"}
+            requests: { cpu: "2", memory: "4Gi" }
+            limits: { cpu: "4", memory: "8Gi" }
         nodeSelector:
           role: cpu-ml
         tolerations:
-          - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
-
-      # Node: cpu-ml - prediction drift on prob_malignant distribution
-      - name: prediction-drift-check
-        activeDeadlineSeconds: 3600
-        container:
-          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.driftMonitor }}"
-          command: ["python", "drift_prediction.py"]
-          envFrom:
-            - configMapRef: {name: isic-ml-config}
-            - secretRef:    {name: isic-ml-secret}
-          resources:
-            requests: {cpu: "1", memory: "2Gi"}
-            limits:   {cpu: "2", memory: "4Gi"}
-        nodeSelector:
-          role: cpu-ml
-        tolerations:
-          - {key: workload, operator: Equal, value: "cpu", effect: NoSchedule}
-
-      # Node: general - write report to S3, exit non-zero if drift critical
-      - name: drift-report-generate
-        activeDeadlineSeconds: 600
-        container:
-          image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.driftMonitor }}"
-          command: ["python", "drift_report.py"]
-          envFrom:
-            - configMapRef: {name: isic-ml-config}
-            - secretRef:    {name: isic-ml-secret}
-          resources:
-            requests: {cpu: "250m", memory: "512Mi"}
-            limits:   {cpu: "500m", memory: "1Gi"}
-        nodeSelector:
-          role: general
+          - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
