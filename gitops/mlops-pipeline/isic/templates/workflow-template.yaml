@@ -204,7 +204,10 @@ spec:
         - { key: workload, operator: Equal, value: "ml", effect: NoSchedule }
 
     # ── Step: evaluate ─────────────────────────────────────────────────────────
-    # Node: gpu — AUC/pAUC/F1/Recall + threshold tuning on full test set
+    # Node: cpu-ml — AUC/pAUC/F1/Recall + threshold tuning on full test set
+    # GPU không cần thiết: evaluate chỉ chạy inference (forward pass) + tính metrics.
+    # Dùng cpu-ml (min_size=1, luôn có sẵn) tránh pending do CA scale-down GPU node
+    # sau khi train hoàn thành.
     - name: evaluate
       activeDeadlineSeconds: 3600
       container:
@@ -214,13 +217,12 @@ spec:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
         resources:
-          requests: { cpu: "2", memory: "8Gi", nvidia.com/gpu: "1" }
-          limits: { cpu: "3", memory: "10Gi", nvidia.com/gpu: "1" }
+          requests: { cpu: "2", memory: "8Gi" }
+          limits: { cpu: "4", memory: "12Gi" }
       nodeSelector:
-        role: ml-pipeline
-        workload: gpu-training
+        role: cpu-ml
       tolerations:
-        - { key: workload, operator: Equal, value: "ml", effect: NoSchedule }
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
 
     # ── Step: xai ──────────────────────────────────────────────────────────────
     # Node: gpu — Grad-CAM (image branch) + SHAP (tabular branch) report
