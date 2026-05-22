@@ -14,6 +14,7 @@ workflow:
 controller:
   workflowNamespaces:
     - argo-workflows
+    - kltn-mul-mlops
   metricsConfig:
     enabled: true
   serviceMonitor:
@@ -46,10 +47,6 @@ server:
 
 # Artifact repository for archiveLogs — persists container logs to S3.
 # Fixes: "unable to retrieve container logs for containerd://"
-#
-# accessKeySecret/secretKeySecret with empty name: satisfies Helm chart template
-# (prevents nil pointer at line 81) but Argo will NOT mount any Secret volume
-# because name is empty. useSDKCreds: true tells Argo to use IRSA instead.
 artifactRepository:
   archiveLogs: true
   s3:
