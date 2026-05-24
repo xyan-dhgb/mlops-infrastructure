@@ -2,18 +2,16 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: isic-ml-pipeline
-  namespace: {{ .Values.global.namespace }}
-  labels: {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+  namespace: { { .Values.global.namespace } }
+  labels: { { include "isic-ml-pipeline.labels" . | nindent 4 } }
 spec:
   serviceAccountName: isic-ml-workflow
   entrypoint: pipeline
   activeDeadlineSeconds: 21600
   # Persist container logs to S3 during execution.
-  # This fixes "unable to retrieve container logs for containerd://" which occurs
-  # when the container is GC'd before Argo can retrieve logs from the runtime.
+
   archiveLogs: true
   # No global retryStrategy - any failed step fails the workflow immediately.
-  # Add per-template retryStrategy only on steps where retry makes sense (e.g. train).
 
   templates:
     # ── DAG ────────────────────────────────────────────────────────────────────
