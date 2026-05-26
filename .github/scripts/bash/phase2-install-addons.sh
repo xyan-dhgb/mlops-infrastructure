@@ -574,17 +574,18 @@ ssm_run 600 "⚙️ Install KServe" \
   "kubectl get crd inferenceservices.serving.kserve.io" \
   "echo '✅ KServe installed OK'"
 
-
-# Patch IRSA annotation lên KServe Storage Initializer ServiceAccount
-# Prerequisite: terraform apply phải được chạy trước để tạo IAM Role.
-# Nếu role chưa tồn tại → warn và skip (không fail pipeline).
+# Patch IRSA annotation to KServe Storage Initializer ServiceAccount
 echo "🔎 Checking KServe Storage Initializer IRSA role in AWS..."
-KSERVE_STORAGE_IRSA_ROLE_NAME="mlops-kserve-storage-irsa-${ENVIRONMENT_NAME}"
+KSERVE_STORAGE_IRSA_ROLE_ARN=$(aws resourcegroupstaggingapi get-resources \
+  --resource-type-filters "iam:role" \
+  --tag-filters \
+    "Key=Component,Values=kserve-storage-initializer" \
+    "Key=Environment,Values=${ENVIRONMENT_NAME}" \
+  --query "ResourceTagMappingList[0].ResourceARN" \
+  --output text 2>/dev/null)
 
-if KSERVE_STORAGE_IRSA_ROLE_ARN=$(aws iam get-role \
-  --role-name "${KSERVE_STORAGE_IRSA_ROLE_NAME}" \
-  --query "Role.Arn" --output text 2>/dev/null); then
-
+# get-resources trả về "None" nếu không tìm thấy
+if [[ -n "${KSERVE_STORAGE_IRSA_ROLE_ARN}" && "${KSERVE_STORAGE_IRSA_ROLE_ARN}" != "None" ]]; then
   echo "  IRSA found: ${KSERVE_STORAGE_IRSA_ROLE_ARN}"
   ssm_run 60 "🔑 Patch KServe Storage Initializer IRSA" \
     "${AWS_ENV_EXPORT}" \
@@ -598,12 +599,13 @@ if KSERVE_STORAGE_IRSA_ROLE_ARN=$(aws iam get-role \
        -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}'
      echo ''
      echo '✅ KServe Storage Initializer IRSA patched OK'"
-
 else
-  echo "⚠️  WARNING: IAM Role '${KSERVE_STORAGE_IRSA_ROLE_NAME}' not found in AWS."
-  echo "   → Pass patch IRSA. KServe Storage Initializer will not be able to access S3."
-  echo "   → Run 'terraform apply' in environments/dev/ to create role, then patch manually:"
+  echo "⚠️  WARNING: KServe Storage Initializer IRSA role not found in AWS."
+  echo "   Tag filter: Component=kserve-storage-initializer, Environment=${ENVIRONMENT_NAME}"
+  echo "   → Bỏ qua bước patch IRSA. KServe Storage Initializer sẽ không thể truy cập S3."
+  echo "   → Chạy 'terraform apply' trong environments/dev/ để tạo role."
 fi
+
 
 
 # Verify all add-ons.
