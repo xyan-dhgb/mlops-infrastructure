@@ -546,7 +546,7 @@ ssm_run 300 "⚙️ Cloudflare: Helm Install" \
 ssm_run 600 "⚙️ Install cert-manager" \
   "${AWS_ENV_EXPORT}" \
   "set -e" \
-  "helm repo add jetstack https://charts.jetstack.io || helm repo update jetstack" \
+  "helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true" \
   "helm repo update jetstack" \
   "kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -" \
   "helm upgrade --install cert-manager jetstack/cert-manager \
@@ -559,15 +559,16 @@ ssm_run 600 "⚙️ Install cert-manager" \
   "echo '✅ cert-manager installed OK'"
 
 
+
 # Install KServe controller
+# KServe v0.13+ dùng OCI registry (ghcr.io), không còn helm repo HTTP truyền thống
 ssm_run 600 "⚙️ Install KServe" \
   "${AWS_ENV_EXPORT}" \
   "set -e" \
-  "helm repo add kserve https://kserve.github.io/kserve || helm repo update kserve" \
-  "helm repo update kserve" \
   "kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -" \
   "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -" \
-  "helm upgrade --install kserve kserve/kserve \
+  "helm upgrade --install kserve \
+    oci://ghcr.io/kserve/charts/kserve \
     --namespace kserve \
     --version 'v0.13.1' \
     --values /tmp/helm-values/kserve/kserve-values.yaml \
