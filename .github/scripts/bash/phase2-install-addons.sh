@@ -546,7 +546,7 @@ ssm_run 300 "⚙️ Cloudflare: Helm Install" \
 ssm_run 600 "⚙️ Install cert-manager" \
   "${AWS_ENV_EXPORT}" \
   "set -e" \
-  "helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true" \
+c  "helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true" \
   "helm repo update jetstack" \
   "kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -" \
   "helm upgrade --install cert-manager jetstack/cert-manager \
@@ -575,18 +575,36 @@ ssm_run 300 "⚙️ Install KServe CRDs" \
   "kubectl get crd clusterservingruntimes.serving.kserve.io" \
   "echo '✅ KServe CRDs installed OK'"
 
-# Install KServe controller + resources (sau khi CRDs đã có)
-ssm_run 600 "⚙️ Install KServe" \
+# Install KServe — Phase 1: deploy controller, bỏ qua webhook errors (cert chưa ready)
+# Race condition: cert-manager cần ~30s để issue TLS cert cho webhook sau khi controller start.
+# ClusterServingRuntime validation sẽ fail ở phase này — đây là expected behavior.
+ssm_run 600 "⚙️ Install KServe (phase 1 - controller)" \
   "${AWS_ENV_EXPORT}" \
-  "set -e" \
   "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -" \
   "helm upgrade --install kserve \
     oci://ghcr.io/kserve/charts/kserve \
     --namespace kserve \
     --version 'v0.13.1' \
     --values /tmp/helm-values/kserve/kserve-values.yaml \
-    --wait --timeout 10m" \
+    --timeout 10m || true" \
+  "echo 'Waiting for kserve-controller-manager to be ready...'" \
   "kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=300s" \
+  "echo 'Waiting 60s for cert-manager to issue webhook TLS cert...'" \
+  "sleep 60" \
+  "kubectl wait --for=condition=Ready certificates --all -n kserve --timeout=120s 2>/dev/null || echo 'cert wait skipped'" \
+  "echo '✅ KServe controller ready, webhook cert issued'"
+
+# Install KServe — Phase 2: re-apply để tạo ClusterServingRuntime resources (webhook đã sẵn sàng)
+ssm_run 300 "⚙️ Install KServe (phase 2 - serving runtimes)" \
+  "${AWS_ENV_EXPORT}" \
+  "set -e" \
+  "helm upgrade --install kserve \
+    oci://ghcr.io/kserve/charts/kserve \
+    --namespace kserve \
+    --version 'v0.13.1' \
+    --values /tmp/helm-values/kserve/kserve-values.yaml \
+    --wait --timeout 5m" \
+  "kubectl get clusterservingruntimes.serving.kserve.io 2>/dev/null | head -5" \
   "echo '✅ KServe installed OK'"
 
 # Patch IRSA annotation lên KServe Storage Initializer ServiceAccount
