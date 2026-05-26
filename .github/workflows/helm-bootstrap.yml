@@ -91,6 +91,8 @@ jobs:
           | MLflow                       | `${{ steps.install_addons.outcome }}` |
           | Monitoring (Prom/Grafana)    | `${{ steps.install_addons.outcome }}` |
           | Cloudflare Tunnel            | `${{ steps.install_addons.outcome }}` |
+          | cert-manager                 | `${{ steps.install_addons.outcome }}` |
+          | KServe                       | `${{ steps.install_addons.outcome }}` |
 
           EOF
 
