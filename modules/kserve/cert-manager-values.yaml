@@ -1,0 +1,37 @@
+# Helm values for cert-manager (jetstack/cert-manager v1.14.x)
+# Prerequisite của KServe: Automate issuance of TLS certificate for KServe webhook
+
+# Make sure to install CRD when using Helm
+installCRDs: true
+
+# Chạy controller trong namespace cert-manager
+global:
+  leaderElection:
+    namespace: cert-manager
+
+controller:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+webhook:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+cainjector:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
