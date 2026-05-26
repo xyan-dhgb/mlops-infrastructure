@@ -5,10 +5,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Installing system dependencies required for Pillow and TensorFlow
+# System deps for OpenCV headless + Pillow (Debian Bookworm / python:3.10-slim)
+# libgl1-mesa-glx was renamed to libgl1 in Debian Bookworm
+# opencv-python-headless still needs libgl1, libglib2.0-0, libsm6, libxext6
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
-    libgl1-mesa-glx \
+    libgl1 \
+    libsm6 \
+    libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies first (leverage Docker layer cache)
