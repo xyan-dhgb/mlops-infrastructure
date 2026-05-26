@@ -174,7 +174,7 @@ module "argo_workflows_iam" {
 
 # IRSA role for KServe Storage Initializer (kserve/kserve-storage-initializer ServiceAccount)
 # Storage Initializer downloads model artifacts from s3
-module "kserve_iam" {
+module "kserve_iam_storage_initializer" {
   source = "../../modules/kserve/iam"
 
   project_name = var.project_name
