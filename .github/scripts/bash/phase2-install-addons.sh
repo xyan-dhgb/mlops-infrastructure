@@ -575,6 +575,29 @@ ssm_run 600 "⚙️ Install KServe" \
   "echo '✅ KServe installed OK'"
 
 
+# Patch IRSA annotation lên KServe Storage Initializer ServiceAccount
+# Giống pattern alertmanager IRSA: runner fetch ARN → truyền vào SSM → kubectl annotate
+echo "🔎 Fetching KServe Storage Initializer IRSA role ARN from AWS..."
+KSERVE_STORAGE_IRSA_ROLE_NAME="mlops-kserve-storage-irsa-${ENVIRONMENT_NAME}"
+KSERVE_STORAGE_IRSA_ROLE_ARN=$(aws iam get-role \
+  --role-name "${KSERVE_STORAGE_IRSA_ROLE_NAME}" \
+  --query "Role.Arn" --output text)
+echo "  IRSA: ${KSERVE_STORAGE_IRSA_ROLE_ARN}"
+
+ssm_run 60 "🔑 Patch KServe Storage Initializer IRSA" \
+  "${AWS_ENV_EXPORT}" \
+  "echo 'Patching kserve-storage-initializer ServiceAccount with IRSA ARN...'
+   kubectl annotate serviceaccount kserve-storage-initializer \
+     -n kserve \
+     eks.amazonaws.com/role-arn=${KSERVE_STORAGE_IRSA_ROLE_ARN} \
+     --overwrite
+   echo '--- Verify IRSA annotation ---'
+   kubectl get serviceaccount kserve-storage-initializer -n kserve \
+     -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}'
+   echo ''
+   echo '✅ KServe Storage Initializer IRSA patched OK'"
+
+
 # Verify all add-ons.
 ssm_run 60 "📝 Verify add-ons" \
   "${AWS_ENV_EXPORT}" \
