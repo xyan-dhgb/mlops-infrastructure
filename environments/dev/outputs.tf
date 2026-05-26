@@ -121,11 +121,11 @@ output "ml_pipeline_irsa_role_arn" {
 
 output "kserve_storage_irsa_role_arn" {
   description = "IAM role ARN for KServe Storage Initializer ServiceAccount (IRSA)"
-  value       = module.kserve_iam.kserve_storage_irsa_role_arn
+  value       = module.kserve_iam_storage_initializer.kserve_storage_irsa_role_arn
 }
 
 output "kserve_storage_irsa_role_name" {
   description = "IAM role name for KServe Storage Initializer (used by phase2 to patch SA annotation)"
-  value       = module.kserve_iam.kserve_storage_irsa_role_name
+  value       = module.kserve_iam_storage_initializer.kserve_storage_irsa_role_name
 }
 
