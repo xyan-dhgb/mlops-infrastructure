@@ -28,6 +28,12 @@ spec:
       server: https://kubernetes.default.svc
     - namespace: kltn-mul-mlops
       server: https://kubernetes.default.svc
+    - namespace: model-serving
+      server: https://kubernetes.default.svc
+    - namespace: cert-manager
+      server: https://kubernetes.default.svc
+    - namespace: kserve
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: "*"
       kind: "*"

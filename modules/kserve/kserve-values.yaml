@@ -1,0 +1,53 @@
+# Helm values for KServe (kserve/kserve v0.13.x)
+# KServe controller runs in namespace: kserve
+# InferenceService (model workload) runs in namespace: model-serving
+
+kserve:
+  controller:
+    # Default Deployment Mode
+    # Eliminating requirement of Knative/Istio.
+    deploymentMode: "RawDeployment"
+
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+
+    # Give KServe controller the permission of watching and reconciling InferenceService in the model-serving namespace (not just the kserve namespace)
+    gateway:
+      domain: cluster.local
+
+  # Storage Initializer
+  # Pod sidecar auto-download model artifacts from S3 to /mnt/models before the main container (serving.py) starts.
+  storageInitializer:
+    image: "kserve/storage-initializer:v0.13.1"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+    # Use IRSA (IAM Role for Service Account) to access S3
+    # IRSA ARN will be patched to SA by phase2 after Helm install
+    enableModelcar: false
+
+  # Ingress
+  # Disable Istio ingress (RawDeployment uses K8s Service directly)
+  ingress:
+    ingressGateway: "disabled"
+    ingressClassName: ""
+    domainTemplate: "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}"
+
+  # Metrics
+  metricsConfig:
+    enabled: true
+
+# cert-manager integration
+# KServe uses cert-manager to auto-issue TLS certificate for admission webhook
+certManager:
+  enabled: true
