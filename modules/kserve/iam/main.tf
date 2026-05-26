@@ -30,7 +30,9 @@ data "aws_iam_policy_document" "kserve_storage_irsa_assume" {
 
 # IAM Role
 resource "aws_iam_role" "kserve_storage_irsa" {
-  name               = "${var.project_name}-kserve-storage-irsa-${var.environment}"
+  # Naming nhất quán với các IRSA roles khác: mlops-<service>-irsa-<env>
+  # Ví dụ: mlops-alertmanager-sns-irsa-dev, mlops-cicd-metrics-exporter-irsa-dev
+  name               = "mlops-kserve-storage-irsa-${var.environment}"
   assume_role_policy = data.aws_iam_policy_document.kserve_storage_irsa_assume.json
 
   tags = {
@@ -59,7 +61,7 @@ data "aws_iam_policy_document" "kserve_storage_s3" {
 }
 
 resource "aws_iam_role_policy" "kserve_storage_s3" {
-  name   = "${var.project_name}-kserve-storage-s3-policy-${var.environment}"
+  name   = "mlops-kserve-storage-s3-policy-${var.environment}"
   role   = aws_iam_role.kserve_storage_irsa.id
   policy = data.aws_iam_policy_document.kserve_storage_s3.json
 }

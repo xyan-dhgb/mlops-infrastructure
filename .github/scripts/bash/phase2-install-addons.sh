@@ -545,7 +545,8 @@ ssm_run 300 "⚙️ Cloudflare: Helm Install" \
 # Install cert-manager (prerequisite của KServe)
 ssm_run 600 "⚙️ Install cert-manager" \
   "${AWS_ENV_EXPORT}" \
-  "helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true" \
+  "set -e" \
+  "helm repo add jetstack https://charts.jetstack.io || helm repo update jetstack" \
   "helm repo update jetstack" \
   "kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -" \
   "helm upgrade --install cert-manager jetstack/cert-manager \
@@ -561,7 +562,8 @@ ssm_run 600 "⚙️ Install cert-manager" \
 # Install KServe controller
 ssm_run 600 "⚙️ Install KServe" \
   "${AWS_ENV_EXPORT}" \
-  "helm repo add kserve https://kserve.github.io/kserve 2>/dev/null || true" \
+  "set -e" \
+  "helm repo add kserve https://kserve.github.io/kserve || helm repo update kserve" \
   "helm repo update kserve" \
   "kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -" \
   "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -" \
@@ -574,19 +576,17 @@ ssm_run 600 "⚙️ Install KServe" \
   "kubectl get crd inferenceservices.serving.kserve.io" \
   "echo '✅ KServe installed OK'"
 
-# Patch IRSA annotation to KServe Storage Initializer ServiceAccount
-echo "🔎 Checking KServe Storage Initializer IRSA role in AWS..."
-KSERVE_STORAGE_IRSA_ROLE_ARN=$(aws resourcegroupstaggingapi get-resources \
-  --resource-type-filters "iam:role" \
-  --tag-filters \
-    "Key=Component,Values=kserve-storage-initializer" \
-    "Key=Environment,Values=${ENVIRONMENT_NAME}" \
-  --query "ResourceTagMappingList[0].ResourceARN" \
-  --output text 2>/dev/null)
+# Patch IRSA annotation lên KServe Storage Initializer ServiceAccount
+# Pattern nhất quán với các IRSA khác: aws iam get-role trực tiếp theo tên
+# Role name: mlops-kserve-storage-irsa-<env> (định nghĩa trong modules/kserve/iam/main.tf)
+echo "🔎 Fetching KServe Storage Initializer IRSA role from AWS..."
+KSERVE_STORAGE_IRSA_ROLE_NAME="mlops-kserve-storage-irsa-${ENVIRONMENT_NAME}"
+KSERVE_STORAGE_IRSA_ROLE_ARN=$(aws iam get-role \
+  --role-name "${KSERVE_STORAGE_IRSA_ROLE_NAME}" \
+  --query "Role.Arn" --output text 2>/dev/null || true)
 
-# get-resources trả về "None" nếu không tìm thấy
-if [[ -n "${KSERVE_STORAGE_IRSA_ROLE_ARN}" && "${KSERVE_STORAGE_IRSA_ROLE_ARN}" != "None" ]]; then
-  echo "  IRSA found: ${KSERVE_STORAGE_IRSA_ROLE_ARN}"
+if [[ -n "${KSERVE_STORAGE_IRSA_ROLE_ARN:-}" && "${KSERVE_STORAGE_IRSA_ROLE_ARN}" != "None" ]]; then
+  echo "  IRSA: ${KSERVE_STORAGE_IRSA_ROLE_ARN}"
   ssm_run 60 "🔑 Patch KServe Storage Initializer IRSA" \
     "${AWS_ENV_EXPORT}" \
     "echo 'Patching kserve-storage-initializer ServiceAccount with IRSA ARN...'
@@ -600,11 +600,14 @@ if [[ -n "${KSERVE_STORAGE_IRSA_ROLE_ARN}" && "${KSERVE_STORAGE_IRSA_ROLE_ARN}" 
      echo ''
      echo '✅ KServe Storage Initializer IRSA patched OK'"
 else
-  echo "⚠️  WARNING: KServe Storage Initializer IRSA role not found in AWS."
-  echo "   Tag filter: Component=kserve-storage-initializer, Environment=${ENVIRONMENT_NAME}"
+  echo "⚠️  WARNING: Role '${KSERVE_STORAGE_IRSA_ROLE_NAME}' không tìm thấy trên AWS."
   echo "   → Bỏ qua bước patch IRSA. KServe Storage Initializer sẽ không thể truy cập S3."
   echo "   → Chạy 'terraform apply' trong environments/dev/ để tạo role."
 fi
+
+
+
+
 
 
 
