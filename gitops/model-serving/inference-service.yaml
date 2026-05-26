@@ -1,0 +1,50 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: skin-lesion
+  namespace: model-serving
+  annotations:
+    # KServe RawDeployment: Create standard K8s Deployment + Service, without using Knative/Istio
+    serving.kserve.io/deploymentMode: "RawDeployment"
+spec:
+  predictor:
+    # storageUri: KServe Storage Initializer automatically downloads all files in this S3 prefix into the /mnt/models directory before the container starts. The files downloaded are:
+    #   s3://kltn-isic-2024-colab/preprocessed/best_model_isic2024.h5 → /mnt/models/
+    #   s3://kltn-isic-2024-colab/preprocessed/encoders.pkl            → /mnt/models/
+    #   s3://kltn-isic-2024-colab/preprocessed/best_threshold.txt     → /mnt/models/
+    storageUri: "s3://kltn-isic-2024-colab/preprocessed"
+    containers:
+      - name: kserve-container
+        # Image is automatically updated by CI/CD after each successful build
+        # Format tag: skin-cancer-predictor-YYYYMMDD-HHmmss (UTC)
+        image: PATCH_ECR_REGISTRY/skin-cancer-predictor:latest
+
+        ports:
+          - containerPort: 8080
+            protocol: TCP
+
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "2Gi"
+          limits:
+            cpu: "1"
+            memory: "4Gi"
+
+        # KServe health endpoint: /v1/models/{metadata.name}
+        # metadata.name = "skin-lesion" → path phải khớp
+        readinessProbe:
+          httpGet:
+            path: /v1/models/skin-lesion
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 5
+
+        livenessProbe:
+          httpGet:
+            path: /v1/models/skin-lesion
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          failureThreshold: 3
