@@ -40,6 +40,8 @@ GRAFANA_DASHBOARDS_B64=$(tar -C modules/monitoring/grafana -czf - dashboards | b
 PROM_RULES_B64=$(base64 -w 0 modules/monitoring/prometheus/rules/eks-alerts.yaml)
 CLOUDFLARE_CREDS_B64=$(echo "${CLOUDFLARE_TUNNEL_CREDENTIALS}" | base64 -w 0)
 NVIDIA_PLUGIN_VALUES_B64=$(base64 -w 0 modules/eks/manifests/nvidia-device-plugin-values.yaml)
+CERT_MANAGER_B64=$(base64 -w 0 modules/kserve/cert-manager-values.yaml)
+KSERVE_B64=$(base64 -w 0 modules/kserve/kserve-values.yaml)
 
 # Fetch monitoring config from AWS on the runner, where IAM permissions exist.
 ENVIRONMENT_NAME="${ENVIRONMENT:-dev}"
@@ -163,7 +165,7 @@ CICD_METRICS_B64=$(tar -C "${CICD_METRICS_RENDER_DIR}" -czf - . | base64 -w 0)
 
 # Upload all Helm values to the bastion.
 ssm_run 30 "🔗 Upload Helm values" \
-  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/argo-workflows /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/monitoring/cicd-metrics /tmp/helm-values/cloudflare /tmp/helm-values/eks" \
+  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/argo-workflows /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/monitoring/cicd-metrics /tmp/helm-values/cloudflare /tmp/helm-values/eks /tmp/helm-values/kserve" \
   "echo '${ARGOCD_B64}' | base64 -d > /tmp/helm-values/argocd/values.yaml" \
   "echo '${ARGO_WORKFLOWS_B64}' | base64 -d > /tmp/helm-values/argo-workflows/values.yaml" \
   "echo '${MLFLOW_B64}' | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
@@ -175,6 +177,8 @@ ssm_run 30 "🔗 Upload Helm values" \
   "echo '${CICD_METRICS_B64}' | base64 -d > /tmp/helm-values/monitoring/cicd-metrics/cicd-metrics.tgz" \
   "tar -xzf /tmp/helm-values/monitoring/cicd-metrics/cicd-metrics.tgz -C /tmp/helm-values/monitoring/cicd-metrics" \
   "echo '${NVIDIA_PLUGIN_VALUES_B64}' | base64 -d > /tmp/helm-values/eks/nvidia-device-plugin-values.yaml" \
+  "echo '${CERT_MANAGER_B64}' | base64 -d > /tmp/helm-values/kserve/cert-manager-values.yaml" \
+  "echo '${KSERVE_B64}' | base64 -d > /tmp/helm-values/kserve/kserve-values.yaml" \
   "# Decode rendered Alertmanager config (SNS placeholders already substituted on runner)
    echo '${ALERTMANAGER_CONFIG_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml" \
   "if grep -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/values.yaml; then
@@ -538,6 +542,39 @@ ssm_run 300 "⚙️ Cloudflare: Helm Install" \
   "echo '✅ Cloudflare Tunnel installed OK'"
 
 
+# Install cert-manager (prerequisite của KServe)
+ssm_run 600 "⚙️ Install cert-manager" \
+  "${AWS_ENV_EXPORT}" \
+  "helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true" \
+  "helm repo update jetstack" \
+  "kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -" \
+  "helm upgrade --install cert-manager jetstack/cert-manager \
+    --namespace cert-manager \
+    --version 'v1.14.5' \
+    --values /tmp/helm-values/kserve/cert-manager-values.yaml \
+    --wait --timeout 5m" \
+  "kubectl rollout status deployment/cert-manager -n cert-manager --timeout=120s" \
+  "kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s" \
+  "echo '✅ cert-manager installed OK'"
+
+
+# Install KServe controller
+ssm_run 600 "⚙️ Install KServe" \
+  "${AWS_ENV_EXPORT}" \
+  "helm repo add kserve https://kserve.github.io/kserve 2>/dev/null || true" \
+  "helm repo update kserve" \
+  "kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -" \
+  "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -" \
+  "helm upgrade --install kserve kserve/kserve \
+    --namespace kserve \
+    --version 'v0.13.1' \
+    --values /tmp/helm-values/kserve/kserve-values.yaml \
+    --wait --timeout 10m" \
+  "kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=300s" \
+  "kubectl get crd inferenceservices.serving.kserve.io" \
+  "echo '✅ KServe installed OK'"
+
+
 # Verify all add-ons.
 ssm_run 60 "📝 Verify add-ons" \
   "${AWS_ENV_EXPORT}" \
@@ -553,6 +590,11 @@ ssm_run 60 "📝 Verify add-ons" \
   "kubectl get servicemonitor cicd-metrics-exporter -n prometheus" \
   "kubectl get pods -n grafana" \
   "kubectl get pods -n cloudflare" \
-  "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflared --tail=5"
+  "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflared --tail=5" \
+  "helm status cert-manager -n cert-manager" \
+  "kubectl get pods -n cert-manager" \
+  "helm status kserve -n kserve" \
+  "kubectl get pods -n kserve" \
+  "kubectl get crd inferenceservices.serving.kserve.io 2>/dev/null && echo 'KServe CRD OK' || echo 'KServe CRD NOT FOUND'"
 
 echo "✅ All add-ons bootstrapped successfully!"
