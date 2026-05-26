@@ -171,3 +171,18 @@ module "argo_workflows_iam" {
 
   depends_on = [module.eks]
 }
+
+# IRSA role for KServe Storage Initializer (kserve/kserve-storage-initializer ServiceAccount)
+# Storage Initializer downloads model artifacts from s3
+module "kserve_iam" {
+  source = "../../modules/kserve/iam"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  eks_oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  eks_oidc_provider_url = module.eks.cluster_oidc_issuer_url
+
+  depends_on = [module.eks]
+}
+
