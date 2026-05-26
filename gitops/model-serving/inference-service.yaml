@@ -1,7 +1,7 @@
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
-  name: skin-lesion
+  name: skin-prediction
   namespace: model-serving
   annotations:
     # KServe RawDeployment: Create standard K8s Deployment + Service, without using Knative/Istio
@@ -32,10 +32,10 @@ spec:
             memory: "4Gi"
 
         # KServe health endpoint: /v1/models/{metadata.name}
-        # metadata.name = "skin-lesion" → path phải khớp
+        # metadata.name = "skin-prediction" → path phải khớp
         readinessProbe:
           httpGet:
-            path: /v1/models/skin-lesion
+            path: /v1/models/skin-prediction
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -43,7 +43,7 @@ spec:
 
         livenessProbe:
           httpGet:
-            path: /v1/models/skin-lesion
+            path: /v1/models/skin-prediction
             port: 8080
           initialDelaySeconds: 60
           periodSeconds: 30
