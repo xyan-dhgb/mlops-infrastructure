@@ -560,12 +560,25 @@ ssm_run 600 "⚙️ Install cert-manager" \
 
 
 
-# Install KServe controller
-# KServe v0.13+ dùng OCI registry (ghcr.io), không còn helm repo HTTP truyền thống
-ssm_run 600 "⚙️ Install KServe" \
+# Install KServe CRDs (bắt buộc phải install trước kserve controller)
+# KServe v0.13+ OCI: chart được tách thành kserve-crd và kserve riêng biệt
+ssm_run 300 "⚙️ Install KServe CRDs" \
   "${AWS_ENV_EXPORT}" \
   "set -e" \
   "kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -" \
+  "helm upgrade --install kserve-crd \
+    oci://ghcr.io/kserve/charts/kserve-crd \
+    --namespace kserve \
+    --version 'v0.13.1' \
+    --wait --timeout 5m" \
+  "kubectl get crd inferenceservices.serving.kserve.io" \
+  "kubectl get crd clusterservingruntimes.serving.kserve.io" \
+  "echo '✅ KServe CRDs installed OK'"
+
+# Install KServe controller + resources (sau khi CRDs đã có)
+ssm_run 600 "⚙️ Install KServe" \
+  "${AWS_ENV_EXPORT}" \
+  "set -e" \
   "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -" \
   "helm upgrade --install kserve \
     oci://ghcr.io/kserve/charts/kserve \
@@ -574,7 +587,6 @@ ssm_run 600 "⚙️ Install KServe" \
     --values /tmp/helm-values/kserve/kserve-values.yaml \
     --wait --timeout 10m" \
   "kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=300s" \
-  "kubectl get crd inferenceservices.serving.kserve.io" \
   "echo '✅ KServe installed OK'"
 
 # Patch IRSA annotation lên KServe Storage Initializer ServiceAccount
@@ -630,8 +642,10 @@ ssm_run 60 "📝 Verify add-ons" \
   "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflared --tail=5" \
   "helm status cert-manager -n cert-manager" \
   "kubectl get pods -n cert-manager" \
+  "helm status kserve-crd -n kserve" \
   "helm status kserve -n kserve" \
   "kubectl get pods -n kserve" \
   "kubectl get crd inferenceservices.serving.kserve.io 2>/dev/null && echo 'KServe CRD OK' || echo 'KServe CRD NOT FOUND'"
+
 
 echo "✅ All add-ons bootstrapped successfully!"
