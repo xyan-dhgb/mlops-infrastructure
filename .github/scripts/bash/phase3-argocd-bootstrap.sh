@@ -72,7 +72,18 @@ ssm_run 300 "Bootstrap ArgoCD GitOps" \
    argocd app sync prometheus --core || echo '⚠️ prometheus sync skipped or already synced'
    argocd app sync argo-workflows --core || echo '⚠️ argo-workflows sync skipped or already synced'
    argocd app wait argo-workflows --operation --health --core --timeout 300 \
-     || echo 'argo-workflows wait timed out, continuing to final status check'" \
+     || echo 'argo-workflows wait timed out, continuing'
+
+   # cert-manager must be adopted before KServe (sync-wave: 1 → 2)
+   echo '🔄 Syncing cert-manager (sync-wave 1)...'
+   argocd app sync cert-manager --core || echo '⚠️ cert-manager sync skipped or already synced'
+   argocd app wait cert-manager --operation --health --core --timeout 180 \
+     || echo '⚠️ cert-manager wait timed out, continuing'
+
+   echo '🔄 Syncing kserve (sync-wave 2)...'
+   argocd app sync kserve --core || echo '⚠️ kserve sync skipped or already synced'
+   argocd app wait kserve --operation --health --core --timeout 300 \
+     || echo '⚠️ kserve wait timed out, continuing'" \
   \
   "# 8. Final status check
    echo '📋 Final status of all ArgoCD apps:'
