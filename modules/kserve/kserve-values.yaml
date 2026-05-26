@@ -48,6 +48,6 @@ kserve:
     enabled: true
 
 # cert-manager integration
-# KServe dùng cert-manager để tự ký TLS certificate cho admission webhook
+# KServe uses cert-manager to auto-issue TLS certificate for admission webhook
 certManager:
   enabled: true
