@@ -1,0 +1,32 @@
+# This application manages KServe InferenceService deployment
+# When inference-service.yaml changes on Git, ArgoCD will automatically detect and apply changes to the cluster
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: multimodal-serving
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+    targetRevision: dev
+    path: gitops/model-serving
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: model-serving
+  syncPolicy:
+    automated:
+      prune: false       # Do not delete InferenceService when deleting the file from Git
+      selfHeal: true     # Self-healing if someone manually modifies on the cluster
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    # Ignore differences in replicas because KServe RawMode manages them itself
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
