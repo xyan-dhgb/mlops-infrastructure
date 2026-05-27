@@ -12,8 +12,7 @@ spec:
     server: https://kubernetes.default.svc
     namespace: kserve
   sources:
-    - repoURL: oci://ghcr.io/kserve/charts
-      chart: kserve
+    - repoURL: oci://ghcr.io/kserve/charts/kserve
       targetRevision: v0.13.1
       helm:
         releaseName: kserve
