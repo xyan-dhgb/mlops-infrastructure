@@ -13,11 +13,11 @@ data "aws_iam_policy_document" "kserve_storage_irsa_assume" {
       identifiers = [var.eks_oidc_provider_arn]
     }
 
-    # Only allow ServiceAccount kserve/kserve-storage-initializer to assume this role
+    # Only allow default ServiceAccount in model-serving namespace to assume this role
     condition {
       test     = "StringEquals"
       variable = "${replace(var.eks_oidc_provider_url, "https://", "")}:sub"
-      values   = ["system:serviceaccount:kserve:kserve-storage-initializer"]
+      values   = ["system:serviceaccount:model-serving:default"]
     }
 
     condition {

@@ -587,6 +587,7 @@ helm upgrade --install kserve \
   --version 'v0.13.1' \
   --values /tmp/helm-values/kserve/kserve-values.yaml \
   --skip-crds \
+  --force-conflicts \
   --timeout 10m || true
 echo 'Waiting for kserve-controller-manager pod to be Running...'
 # Detect ImagePullBackOff early before waiting for rollout to time out.
@@ -664,13 +665,13 @@ if [[ -n "${KSERVE_STORAGE_IRSA_ROLE_ARN:-}" && "${KSERVE_STORAGE_IRSA_ROLE_ARN}
   echo "  IRSA: ${KSERVE_STORAGE_IRSA_ROLE_ARN}"
   ssm_run 60 "🔑 Patch KServe Storage Initializer IRSA" \
     "${AWS_ENV_EXPORT}" \
-    "echo 'Patching kserve-storage-initializer ServiceAccount with IRSA ARN...'
-     kubectl annotate serviceaccount kserve-storage-initializer \
-       -n kserve \
+    "echo 'Patching default ServiceAccount in model-serving namespace with IRSA ARN...'
+     kubectl annotate serviceaccount default \
+       -n model-serving \
        eks.amazonaws.com/role-arn=${KSERVE_STORAGE_IRSA_ROLE_ARN} \
        --overwrite
      echo '--- Verify IRSA annotation ---'
-     kubectl get serviceaccount kserve-storage-initializer -n kserve \
+     kubectl get serviceaccount default -n model-serving \
        -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}'
      echo ''
      echo '✅ KServe Storage Initializer IRSA patched OK'"
