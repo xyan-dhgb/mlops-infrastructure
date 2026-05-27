@@ -2,12 +2,11 @@
 # KServe controller runs in namespace: kserve
 # InferenceService (model workload) runs in namespace: model-serving
 
-# Override kube-rbac-proxy image
-rbacProxy:
-  image: "quay.io/brancz/kube-rbac-proxy:v0.18.1"
-
 kserve:
   controller:
+    # Override kube-rbac-proxy image
+    rbacProxyImage: "quay.io/brancz/kube-rbac-proxy:v0.18.1"
+
     # Default Deployment Mode
     # Eliminating requirement of Knative/Istio.
     deploymentMode: "RawDeployment"
@@ -26,7 +25,7 @@ kserve:
 
   # Storage Initializer
   # Pod sidecar auto-download model artifacts from S3 to /mnt/models before the main container (serving.py) starts.
-  storageInitializer:
+  storage:
     image: "docker.io/kserve/storage-initializer:v0.13.1"
     resources:
       requests:
