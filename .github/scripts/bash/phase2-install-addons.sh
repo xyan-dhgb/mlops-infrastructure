@@ -647,6 +647,7 @@ helm upgrade --install kserve \
   --namespace kserve \
   --version 'v0.13.1' \
   --values /tmp/helm-values/kserve/kserve-values.yaml \
+  --force-conflicts \
   --wait --timeout 5m
 kubectl get clusterservingruntimes.serving.kserve.io 2>/dev/null | head -5
 echo '✅ KServe installed OK'"
