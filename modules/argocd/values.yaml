@@ -26,3 +26,11 @@ configs:
     resource.customizations.ignoreDifferences.apps_StatefulSet: |
       jqPathExpressions:
       - .status.terminatingReplicas
+
+  # Register OCI Helm repositories so ArgoCD can pull charts from OCI registries
+  repositories:
+    kserve-charts:
+      type: helm
+      name: kserve-charts
+      url: oci://ghcr.io/kserve/charts
+      enableOCI: "true"
