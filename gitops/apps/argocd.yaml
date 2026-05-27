@@ -33,6 +33,14 @@ spec:
       jsonPointers:
         - /spec/replicas
         - /spec/template/metadata/annotations
+    # FIX: Kubernetes 1.28+ added .status.terminatingReplicas to StatefulSet.
+    # ArgoCD 7.5.2 schema does not declare this field → ComparisonError with ServerSideApply.
+    # Must be at Application-level (not just argocd-cm) to break the chicken-and-egg cycle:
+    # ArgoCD needs this config to sync itself, but can't sync without it.
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .status.terminatingReplicas
     - group: ""
       kind: Secret
       jsonPointers:
