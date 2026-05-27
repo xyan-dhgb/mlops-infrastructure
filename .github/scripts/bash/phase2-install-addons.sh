@@ -574,9 +574,10 @@ kubectl get crd inferenceservices.serving.kserve.io
 kubectl get crd clusterservingruntimes.serving.kserve.io
 echo '✅ KServe CRDs installed OK'"
 
-# Install KServe - Phase 1: deploy controller, skip webhook errors (cert not ready yet)
+# Install KServe - Phase 1: deploy controller only, skip ClusterServingRuntime webhook validation.
 # Race condition: cert-manager needs ~30-60s to issue TLS cert after controller starts.
-# ClusterServingRuntime validation will fail at this phase - expected behavior.
+# --skip-crds prevents Helm from re-applying ClusterServingRuntime resources via webhook
+# before the webhook server is ready. Phase 2 re-applies the full chart once webhook is live.
 ssm_run 700 "⚙️ Install KServe (phase 1 - controller)" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -
@@ -585,24 +586,50 @@ helm upgrade --install kserve \
   --namespace kserve \
   --version 'v0.13.1' \
   --values /tmp/helm-values/kserve/kserve-values.yaml \
+  --skip-crds \
   --timeout 10m || true
 echo 'Waiting for kserve-controller-manager pod to be Running...'
-kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=300s
-echo 'Polling for kserve-webhook-server-service endpoints (max 3 min)...'
-for i in \$(seq 1 36); do
+# Detect ImagePullBackOff early before waiting for rollout to time out.
+for i in \$(seq 1 12); do
+  POD_STATUS=\$(kubectl get pods -n kserve -l control-plane=kserve-controller-manager \
+    --no-headers 2>/dev/null | awk '{print \$3}' | head -1)
+  if echo \"\${POD_STATUS}\" | grep -qE 'ImagePullBackOff|ErrImagePull|InvalidImageName'; then
+    echo \"ERROR: kserve-controller-manager pod has image pull error: \${POD_STATUS}\"
+    echo 'Check that the EKS node role has ecr:GetAuthorizationToken or that ghcr.io is reachable.'
+    kubectl describe pods -n kserve -l control-plane=kserve-controller-manager | tail -30
+    exit 1
+  fi
+  if echo \"\${POD_STATUS}\" | grep -qE 'Running|Completed'; then
+    echo \"  Pod status: \${POD_STATUS} — proceeding\"
+    break
+  fi
+  echo \"  [\${i}/12] Pod status: '\${POD_STATUS}', waiting 10s...\"
+  sleep 10
+done
+kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=600s
+echo 'Polling for kserve-webhook-server-service endpoints (max 5 min)...'
+for i in \$(seq 1 60); do
   EP=\$(kubectl get endpoints kserve-webhook-server-service -n kserve \
        -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
   if [ -n \"\${EP}\" ]; then
     echo \"  Webhook endpoint ready: \${EP}\"
     break
   fi
-  echo \"  [\${i}/36] No endpoint yet, retrying in 5s...\"
+  # Abort early if pod is in a terminal image-pull error state during webhook poll.
+  POD_STATUS=\$(kubectl get pods -n kserve -l control-plane=kserve-controller-manager \
+    --no-headers 2>/dev/null | awk '{print \$3}' | head -1)
+  if echo \"\${POD_STATUS}\" | grep -qE 'ImagePullBackOff|ErrImagePull|InvalidImageName'; then
+    echo \"ERROR: kserve-controller-manager pod has image pull error: \${POD_STATUS}\"
+    kubectl describe pods -n kserve -l control-plane=kserve-controller-manager | tail -30
+    exit 1
+  fi
+  echo \"  [\${i}/60] No endpoint yet (pod: \${POD_STATUS}), retrying in 5s...\"
   sleep 5
 done
 EP=\$(kubectl get endpoints kserve-webhook-server-service -n kserve \
      -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
 if [ -z \"\${EP}\" ]; then
-  echo 'ERROR: webhook service still has no endpoints after 3 min'
+  echo 'ERROR: webhook service still has no endpoints after 5 min'
   kubectl get pods -n kserve
   kubectl describe deployment kserve-controller-manager -n kserve | tail -20
   exit 1
