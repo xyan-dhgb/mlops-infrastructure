@@ -32,5 +32,5 @@ configs:
     kserve-charts:
       type: helm
       name: kserve-charts
-      url: oci://ghcr.io/kserve/charts
+      url: ghcr.io/kserve/charts
       enableOCI: "true"

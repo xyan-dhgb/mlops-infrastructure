@@ -13,7 +13,7 @@ spec:
     namespace: kserve
   sources:
     # OCI repo must be registered in ArgoCD: argocd repo add oci://ghcr.io/kserve/charts --type helm --name kserve-charts --enable-oci
-    - repoURL: oci://ghcr.io/kserve/charts
+    - repoURL: ghcr.io/kserve/charts
       chart: kserve
       targetRevision: v0.13.1
       helm:
