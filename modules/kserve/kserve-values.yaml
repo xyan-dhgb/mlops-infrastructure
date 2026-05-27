@@ -2,6 +2,10 @@
 # KServe controller runs in namespace: kserve
 # InferenceService (model workload) runs in namespace: model-serving
 
+# Override kube-rbac-proxy image
+rbacProxy:
+  image: "quay.io/brancz/kube-rbac-proxy:v0.18.1"
+
 kserve:
   controller:
     # Default Deployment Mode
