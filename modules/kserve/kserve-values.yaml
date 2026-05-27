@@ -27,7 +27,7 @@ kserve:
   # Storage Initializer
   # Pod sidecar auto-download model artifacts from S3 to /mnt/models before the main container (serving.py) starts.
   storageInitializer:
-    image: "kserve/storage-initializer:v0.13.1"
+    image: "docker.io/kserve/storage-initializer:v0.13.1"
     resources:
       requests:
         cpu: "100m"
