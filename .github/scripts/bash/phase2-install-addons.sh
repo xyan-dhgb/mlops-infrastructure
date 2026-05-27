@@ -575,25 +575,43 @@ kubectl get crd clusterservingruntimes.serving.kserve.io
 echo '✅ KServe CRDs installed OK'"
 
 # Install KServe - Phase 1: deploy controller, skip webhook errors (cert not ready yet)
-# Race condition: cert-manager needs ~30s to issue TLS cert for webhook after controller starts.
-# ClusterServingRuntime validation will fail at this phase — this is expected behavior.
-ssm_run 600 "⚙️ Install KServe (phase 1 - controller)" \
+# Race condition: cert-manager needs ~30-60s to issue TLS cert after controller starts.
+# ClusterServingRuntime validation will fail at this phase - expected behavior.
+ssm_run 700 "⚙️ Install KServe (phase 1 - controller)" \
   "${AWS_ENV_EXPORT}" \
-  "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -" \
-  "helm upgrade --install kserve \
-    oci://ghcr.io/kserve/charts/kserve \
-    --namespace kserve \
-    --version 'v0.13.1' \
-    --values /tmp/helm-values/kserve/kserve-values.yaml \
-    --timeout 10m || true" \
-  "echo 'Waiting for kserve-controller-manager to be ready...'" \
-  "kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=300s" \
-  "echo 'Waiting 60s for cert-manager to issue webhook TLS cert...'" \
-  "sleep 60" \
-  "kubectl wait --for=condition=Ready certificates --all -n kserve --timeout=120s 2>/dev/null || echo 'cert wait skipped'" \
-  "echo '✅ KServe controller ready, webhook cert issued'"
+  "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -
+helm upgrade --install kserve \
+  oci://ghcr.io/kserve/charts/kserve \
+  --namespace kserve \
+  --version 'v0.13.1' \
+  --values /tmp/helm-values/kserve/kserve-values.yaml \
+  --timeout 10m || true
+echo 'Waiting for kserve-controller-manager pod to be Running...'
+kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=300s
+echo 'Polling for kserve-webhook-server-service endpoints (max 3 min)...'
+for i in \$(seq 1 36); do
+  EP=\$(kubectl get endpoints kserve-webhook-server-service -n kserve \
+       -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+  if [ -n \"\${EP}\" ]; then
+    echo \"  Webhook endpoint ready: \${EP}\"
+    break
+  fi
+  echo \"  [\${i}/36] No endpoint yet, retrying in 5s...\"
+  sleep 5
+done
+EP=\$(kubectl get endpoints kserve-webhook-server-service -n kserve \
+     -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+if [ -z \"\${EP}\" ]; then
+  echo 'ERROR: webhook service still has no endpoints after 3 min'
+  kubectl get pods -n kserve
+  kubectl describe deployment kserve-controller-manager -n kserve | tail -20
+  exit 1
+fi
+echo 'Webhook cert ready check...'
+kubectl wait --for=condition=Ready certificates --all -n kserve --timeout=60s 2>/dev/null || true
+echo '✅ KServe controller ready + webhook endpoint available'"
 
-# Install KServe - Phase 2: re-apply to create ClusterServingRuntime resources (webhook is ready now)
+# Install KServe — Phase 2: re-apply để tạo ClusterServingRuntime resources (webhook đã sẵn sàng)
 ssm_run 300 "⚙️ Install KServe (phase 2 - serving runtimes)" \
   "${AWS_ENV_EXPORT}" \
   "set -e
@@ -605,6 +623,7 @@ helm upgrade --install kserve \
   --wait --timeout 5m
 kubectl get clusterservingruntimes.serving.kserve.io 2>/dev/null | head -5
 echo '✅ KServe installed OK'"
+
 
 # Patch IRSA annotation to KServe Storage Initializer ServiceAccount
 echo "🔎 Fetching KServe Storage Initializer IRSA role from AWS..."
