@@ -5,6 +5,10 @@ kind: Application
 metadata:
   name: multimodal-serving
   namespace: argocd
+  annotations:
+    # Deploy AFTER kserve (sync-wave: "2") is Healthy — KServe webhook must be ready
+    # before InferenceService can be created, otherwise sync fails with "no endpoints"
+    argocd.argoproj.io/sync-wave: "3"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -24,9 +28,22 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+      # Skip dry-run for resources whose CRD may not be registered yet (timing safety)
+      - SkipDryRunOnMissingResource=true
   ignoreDifferences:
-    # Ignore differences in replicas because KServe RawMode manages them itself
+    # KServe controller manages replicas of the underlying Deployment
     - group: apps
       kind: Deployment
       jsonPointers:
         - /spec/replicas
+    # KServe mutating webhook injects defaults into InferenceService spec after apply
+    # (e.g. runtime defaults, storage initializer config) — ignore to prevent sync loop
+    - group: serving.kserve.io
+      kind: InferenceService
+      jqPathExpressions:
+        - .spec.predictor.model
+        - .spec.predictor.sklearn
+        - .spec.predictor.tensorflow
+        - .spec.predictor.pytorch
+        - .metadata.annotations["serving.kserve.io/deploymentMode"]
