@@ -1,0 +1,57 @@
+# EditorConfig helps developers define and maintain consistent
+# coding styles between different editors and IDEs.
+# https://editorconfig.org
+
+root = true
+
+# Global settings for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Python files (PEP 8 standard)
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 88
+
+# YAML/YML configurations (Kubernetes, CI/CD, etc.)
+[*.{yaml,yml}]
+indent_style = space
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_style = space
+indent_size = 2
+
+# Markdown files (PEP 8 style spacing, preserve trailing whitespaces for line breaks if needed)
+[*.md]
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = false
+
+# Shell scripts
+[*.sh]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+
+# Dockerfiles
+[Dockerfile*]
+indent_style = space
+indent_size = 4
+
+# Terraform / HCL configurations
+[*.tf]
+indent_style = space
+indent_size = 2
+
+# Makefiles (must use tabs)
+[Makefile]
+indent_style = tab
+indent_size = 4
