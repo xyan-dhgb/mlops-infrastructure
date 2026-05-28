@@ -25,8 +25,10 @@ kserve:
 
   # Storage Initializer
   # Pod sidecar auto-download model artifacts from S3 to /mnt/models before the main container (serving.py) starts.
+  # NOTE: Do NOT include image tag here — KServe controller appends the version tag automatically.
+  # Setting "image:tag" here causes double-tag: "image:tag:tag" → invalid reference error.
   storage:
-    image: "docker.io/kserve/storage-initializer:v0.13.1"
+    image: "docker.io/kserve/storage-initializer"
     resources:
       requests:
         cpu: "100m"
