@@ -26,10 +26,8 @@ spec:
       selfHeal: true     # Self-healing if someone manually modifies on the cluster
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true
       - RespectIgnoreDifferences=true
       - ApplyOutOfSyncOnly=true
-      # Skip dry-run for resources whose CRD may not be registered yet (timing safety)
       - SkipDryRunOnMissingResource=true
   ignoreDifferences:
     # KServe controller manages replicas of the underlying Deployment
