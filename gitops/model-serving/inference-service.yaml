@@ -8,6 +8,23 @@ metadata:
     serving.kserve.io/deploymentMode: "RawDeployment"
 spec:
   predictor:
+    # Allow scheduling on GPU nodes (taint: nvidia.com/gpu=true:NoSchedule)
+    # TensorFlow/Keras auto-detects and uses GPU when available → faster inference
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+    # Prefer GPU nodes, fall back to CPU nodes if GPU unavailable
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: "nvidia.com/gpu"
+                  operator: "Exists"
+
     containers:
       - name: kserve-container
         # Image is automatically updated by CI/CD after each successful build
@@ -30,10 +47,10 @@ spec:
 
         resources:
           requests:
-            cpu: "500m"
+            cpu: "200m"
             memory: "2Gi"
           limits:
-            cpu: "1"
+            cpu: "2"
             memory: "4Gi"
 
         # KServe health endpoint: /v1/models/{metadata.name}
@@ -53,3 +70,4 @@ spec:
           initialDelaySeconds: 60
           periodSeconds: 30
           failureThreshold: 3
+
