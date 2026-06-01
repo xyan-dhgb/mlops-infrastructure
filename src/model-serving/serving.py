@@ -36,7 +36,7 @@ import cv2
 import numpy as np
 import pandas as pd
 from PIL import Image
-from tensorflow import keras
+import tf_keras as keras   # Keras 2.x legacy — tương thích với model .h5 train bằng TF 2.x
 import tensorflow as tf
 from kserve import Model, ModelServer
 
@@ -55,7 +55,7 @@ CATEGORICAL_COLS = ["sex", "anatom_site_general"]
 
 def _dummy_focal_loss(y_true, y_pred):
     """Placeholder to load model without missing custom object error."""
-    return tf.reduce_mean(y_pred)
+    return tf.reduce_mean(y_pred)  # type: ignore[return-value]
 
 
 # Image helpers
