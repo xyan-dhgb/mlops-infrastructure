@@ -2,9 +2,8 @@
 kserve==0.13.1
 
 # Deep Learning
-# tensorflow-cpu: Use CPU inference (don't need GPU in serving)
-# tf-keras: keras 2.x API integrated with TF 2.15 (train.py uses from tensorflow.keras)
-# Do not use standalone keras==2.x at the same time as tensorflow (cause conflict)
+# tensorflow-cpu: dùng CPU inference (không cần GPU khi serving)
+# tf-keras==2.15.0: Keras 2.x legacy API - BẮT BUỘC để load model .h5 train bằng TF 2.x
 tensorflow-cpu==2.15.0
 tf-keras==2.15.0
 
