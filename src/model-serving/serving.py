@@ -40,6 +40,19 @@ import tf_keras as keras   # Keras 2.x legacy — tương thích với model .h5
 import tensorflow as tf
 from kserve import Model, ModelServer
 
+
+# ── Compatibility shim ────────────────────────────────────────────────────────
+# Model .h5 được train bằng TF cũ hơn có InputLayer config chứa 'batch_shape'
+# và 'optional' — hai kwargs này đã bị xóa khỏi tf_keras 2.15.
+# Override from_config để silently drop các kwargs không nhận ra.
+class _CompatInputLayer(keras.layers.InputLayer):
+    @classmethod
+    def from_config(cls, config):
+        config.pop("batch_shape", None)
+        config.pop("optional", None)
+        return super().from_config(config)
+# ─────────────────────────────────────────────────────────────────────────────
+
 logger = logging.getLogger("kserve-serving")
 logging.basicConfig(
     level=logging.INFO,
@@ -133,8 +146,12 @@ class SkinPredictionModel(Model):
         logger.info("[load] Loading Keras model from %s …", model_path)
         self.model = keras.models.load_model(
             model_path,
-            # Tên phải khớp với fn.__name__ = 'focal_loss' trong train.py dòng 96
-            custom_objects={"focal_loss": _dummy_focal_loss},
+            custom_objects={
+                # Tên phải khớp với fn.__name__ = 'focal_loss' trong train.py
+                "focal_loss": _dummy_focal_loss,
+                # Shim để bỏ qua batch_shape/optional trong InputLayer config
+                "InputLayer": _CompatInputLayer,
+            },
             compile=False,
         )
         logger.info("[load] Model output shape: %s", self.model.output_shape)
