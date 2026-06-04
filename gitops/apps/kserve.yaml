@@ -47,3 +47,10 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/replicas
+    # .status.terminatingReplicas is written by the KServe controller at runtime
+    # but is not declared in the CRD schema for v0.13.1 — ArgoCD cannot build a
+    # typed value from an undeclared field, causing a permanent ComparisonError.
+    - group: serving.kserve.io
+      kind: InferenceService
+      jsonPointers:
+        - /status/terminatingReplicas
