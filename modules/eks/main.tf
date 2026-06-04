@@ -165,9 +165,9 @@ moved {
 }
 
 # EKS Node Group
-resource "aws_eks_node_group" "main" {
+resource "aws_eks_node_group" "infra_nodes" {
   cluster_name    = aws_eks_cluster.main.name
-  node_group_name = "${local.cluster_name}-node-group"
+  node_group_name = "${local.cluster_name}-infra-node-group"
   node_role_arn   = aws_iam_role.worker_nodes_role.arn
   subnet_ids      = var.private_subnet_ids
   capacity_type   = var.node_capacity_type
