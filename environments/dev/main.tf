@@ -30,6 +30,7 @@ module "eks" {
   node_desired_size               = var.node_desired_size
   node_min_size                   = var.node_min_size
   node_max_size                   = var.node_max_size
+  node_disk_size_gb               = var.node_disk_size_gb
   enable_ml_node_group            = var.enable_ml_node_group
 
   # ML GPU Pipeline Node Group
