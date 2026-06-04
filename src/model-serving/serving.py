@@ -69,6 +69,20 @@ class _DTypePolicy:
 
     def get_config(self):
         return {"name": self.name}
+
+# Shim 3: Model .h5 được save bằng Keras 3.x tự động thêm 'quantization_config'
+# vào config của mọi layer (Dense, Conv2D...). tf_keras (Keras 2.x) không hiểu
+# kwarg này → raise TypeError("Keyword argument not understood: quantization_config").
+# Monkey-patch Layer.from_config để strip nó đi cho TOÀN BỘ các layer.
+_original_layer_from_config = keras.engine.base_layer.Layer.from_config
+
+@classmethod
+def _patched_layer_from_config(cls, config):
+    config.pop("quantization_config", None)
+    # Gọi lại original classmethod (truy cập .__func__ vì Python classmethod binding)
+    return _original_layer_from_config.__func__(cls, config)
+
+keras.engine.base_layer.Layer.from_config = _patched_layer_from_config
 # ───────────────────────────────────────────────────────────────────────────────
 
 logger = logging.getLogger("kserve-serving")
