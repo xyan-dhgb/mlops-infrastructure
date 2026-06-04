@@ -1,15 +1,20 @@
 name: "Model Serving CI/CD: Build and Deploy to EKS"
 
 on:
-  push:
+  # Pull Request is MERGED into dev from feature/** branch
+  pull_request:
+    types:
+      - closed # only fire when PR is closed (merged or declined)
     branches:
-      - dev
+      - dev # target branch is dev
     paths:
-      - "src/model-serving/**"
+      - "src/model-serving/**" # only when model-serving changed
+
+  # Manual trigger
   workflow_dispatch:
     inputs:
       force_rebuild:
-        description: "Force rebuild Docker image (bỏ cache)"
+        description: "Force rebuild Docker image (skip cache)"
         required: false
         default: "false"
         type: choice
@@ -32,6 +37,9 @@ jobs:
   build-and-push:
     name: "Build and Push Docker Image"
     runs-on: ubuntu-latest
+    # With pull_request trigger: only run when PR is merged (do not build if PR is declined)
+    # With push / workflow_dispatch: event.pull_request does not exist → condition is always true
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
 
     outputs:
       ecr_registry: ${{ steps.login-ecr.outputs.registry }}
