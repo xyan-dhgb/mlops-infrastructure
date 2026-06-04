@@ -66,7 +66,7 @@ ssm_run() {
   echo "🔵 CommandId: ${cmd_id}"
 
   local failed=0
-  wait_ssm "${cmd_id}" "${INSTANCE_ID}" $((timeout + 60)) || failed=1
+  wait_ssm "${cmd_id}" "${INSTANCE_ID}" $((timeout + 90)) || failed=1
 
   echo "=== STDOUT ==="
   aws ssm get-command-invocation \

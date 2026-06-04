@@ -60,16 +60,25 @@ ssm_run 300 "Sync App-of-Apps & wait for child apps" \
    kubectl get applications -n argocd"
 
 
-# ── Step 3: Sync core add-ons: argocd, prometheus, argo-workflows (≤ 420s) ─
-ssm_run 420 "Sync core add-ons" \
+# ── Step 3: Sync core add-ons: argocd, prometheus, argo-workflows (≤ 600s) ─
+ssm_run 600 "Sync core add-ons" \
   "${AWS_ENV_EXPORT}" \
   "kubectl config set-context --current --namespace=argocd" \
-  "echo '🔄 Syncing argocd, prometheus and argo-workflows...'
-   argocd app sync argocd --core || echo '⚠️ argocd sync skipped or already synced'
-   argocd app sync prometheus --core || echo '⚠️ prometheus sync skipped or already synced'
-   argocd app sync argo-workflows --core || echo '⚠️ argo-workflows sync skipped or already synced'
-   argocd app wait argo-workflows --operation --health --core --timeout 300 \
-     || echo 'argo-workflows wait timed out, continuing'"
+  "echo '🔄 Syncing argocd (with retry on restart)...'
+   argocd app sync argocd --core --timeout 90 \
+     || echo '⚠️ argocd sync skipped or already synced'
+   argocd app wait argocd --operation --health --core --timeout 90 \
+     || echo '⚠️ argocd wait timed out, continuing'" \
+  "echo '🔄 Syncing prometheus...'
+   argocd app sync prometheus --core --timeout 90 \
+     || echo '⚠️ prometheus sync skipped or already synced'
+   argocd app wait prometheus --operation --health --core --timeout 90 \
+     || echo '⚠️ prometheus wait timed out, continuing'" \
+  "echo '🔄 Syncing argo-workflows...'
+   argocd app sync argo-workflows --core --timeout 90 \
+     || echo '⚠️ argo-workflows sync skipped or already synced'
+   argocd app wait argo-workflows --operation --health --core --timeout 360 \
+     || echo '⚠️ argo-workflows wait timed out, continuing'"
 
 
 # ── Step 4: Sync cert-manager then kserve (≤ 600s) ────────────────────────
