@@ -18,6 +18,7 @@ node_desired_size     = 1
 node_min_size         = 1
 node_max_size         = 2
 node_disk_size_gb     = 40
+enable_ml_node_group  = true
 enable_cpu_node_group = true
 
 # Bastion Host

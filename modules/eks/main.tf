@@ -56,15 +56,17 @@ resource "aws_eks_cluster" "main" {
   }
 }
 
-# Launch Template for General Worker Nodes - required to attach a custom security group.
-# Without this, nodes only inherit the auto-created cluster SG and cannot be
-# reached by the control plane on kubelet port 10250.
-resource "aws_launch_template" "eks_nodes" {
-  name_prefix = "${local.cluster_name}-node-lt-"
-  description = "Launch template for EKS general worker nodes"
+# ── Launch Templates ──────────────────────────────────────────────────────────
+# Three dedicated templates, one per node role, so disk/config changes are
+# isolated and never trigger unintended rolling updates on sibling node groups.
 
-  # Attach the custom worker node security group IN ADDITION to the cluster SG.
-  # The cluster SG is added automatically by EKS when using a managed node group.
+# Infra nodes: runs Helm-bootstrapped platform services (ArgoCD, Prometheus,
+# Grafana, MLflow, Argo Workflows, cert-manager, KServe controller, Cloudflare).
+# Disk enlarged to 40 GiB (default AMI root = 20 GiB).
+resource "aws_launch_template" "eks_infra_nodes" {
+  name_prefix = "${local.cluster_name}-infra-node-"
+  description = "Launch template for EKS infra nodes -platform services, 40 GiB root EBS"
+
   vpc_security_group_ids = [var.worker_nodes_security_group_id]
 
   block_device_mappings {
@@ -77,7 +79,6 @@ resource "aws_launch_template" "eks_nodes" {
     }
   }
 
-  # Use IMDSv2 (Instance Metadata Service v2) - security best practice
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
@@ -89,14 +90,38 @@ resource "aws_launch_template" "eks_nodes" {
   }
 
   tags = {
-    Name = "${local.cluster_name}-node-lt"
+    Name = "${local.cluster_name}-infra-node"
   }
 }
 
-# Solution: increase the root EBS volume to 50 GiB so pods have ample scratch space.
-resource "aws_launch_template" "eks_ml_nodes" {
-  name_prefix = "${local.cluster_name}-ml-node-"
-  description = "Launch template for ML GPU worker nodes with enlarged root volume"
+# CPU ML nodes: CPU-intensive preprocessing and training jobs.
+# No enlarged disk needed -workloads use ephemeral volumes, not image layers.
+resource "aws_launch_template" "eks_cpu_nodes" {
+  name_prefix = "${local.cluster_name}-cpu-node-"
+  description = "Launch template for EKS CPU ML nodes -SG attachment only"
+
+  vpc_security_group_ids = [var.worker_nodes_security_group_id]
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "${local.cluster_name}-cpu-node"
+  }
+}
+
+# GPU nodes: NVIDIA T4 training jobs (EfficientNet-B3 + XRAI).
+# Disk enlarged to 50 GiB for CUDA image layers + model checkpoints.
+resource "aws_launch_template" "eks_gpu_nodes" {
+  name_prefix = "${local.cluster_name}-gpu-node-"
+  description = "Launch template for EKS GPU nodes -NVIDIA training, 50 GiB root EBS"
 
   vpc_security_group_ids = [var.worker_nodes_security_group_id]
 
@@ -121,8 +146,22 @@ resource "aws_launch_template" "eks_ml_nodes" {
   }
 
   tags = {
-    Name = "${local.cluster_name}-ml-node"
+    Name = "${local.cluster_name}-gpu-node"
   }
+}
+
+# Terraform state moves - rename resource labels without destroying AWS resources.
+moved {
+  from = aws_launch_template.eks_nodes
+  to   = aws_launch_template.eks_cpu_nodes
+}
+moved {
+  from = aws_launch_template.eks_general_nodes
+  to   = aws_launch_template.eks_infra_nodes
+}
+moved {
+  from = aws_launch_template.eks_ml_nodes
+  to   = aws_launch_template.eks_gpu_nodes
 }
 
 # EKS Node Group
@@ -134,10 +173,10 @@ resource "aws_eks_node_group" "main" {
   capacity_type   = var.node_capacity_type
   instance_types  = var.node_instance_types
 
-  # Reference the launch template so the worker node SG is attached
+  # Infra node group: runs Helm-bootstrapped platform services (ArgoCD, Prometheus, MLflow…)
   launch_template {
-    id      = aws_launch_template.eks_nodes.id
-    version = aws_launch_template.eks_nodes.latest_version
+    id      = aws_launch_template.eks_infra_nodes.id
+    version = aws_launch_template.eks_infra_nodes.latest_version
   }
 
   # Node group scaling configuration
@@ -193,10 +232,10 @@ resource "aws_eks_node_group" "ml_nodes" {
   capacity_type   = var.ml_node_capacity_type
   instance_types  = var.ml_node_instance_types
 
-  # Use the dedicated ML launch template with enlarged (50 GiB) root EBS volume.
+  # GPU node group: NVIDIA T4 training (EfficientNet-B3 + XRAI) -50 GiB root EBS
   launch_template {
-    id      = aws_launch_template.eks_ml_nodes.id
-    version = aws_launch_template.eks_ml_nodes.latest_version
+    id      = aws_launch_template.eks_gpu_nodes.id
+    version = aws_launch_template.eks_gpu_nodes.latest_version
   }
 
   # Node group scaling configuration - starts at 0, Cluster Autoscaler scales up on demand
@@ -245,10 +284,10 @@ resource "aws_eks_node_group" "cpu_nodes" {
   capacity_type   = var.cpu_node_capacity_type
   instance_types  = var.cpu_node_instance_types
 
-  # Reference the launch template so the worker node SG is attached
+  # CPU node group: SG attachment only (no disk override needed)
   launch_template {
-    id      = aws_launch_template.eks_nodes.id
-    version = aws_launch_template.eks_nodes.latest_version
+    id      = aws_launch_template.eks_cpu_nodes.id
+    version = aws_launch_template.eks_cpu_nodes.latest_version
   }
 
   scaling_config {

@@ -73,13 +73,13 @@ output "cpu_node_group_status" {
 }
 
 output "node_launch_template_id" {
-  description = "ID of the launch template used for EKS worker nodes"
-  value       = aws_launch_template.eks_nodes.id
+  description = "ID of the launch template used for EKS infra (general) worker nodes"
+  value       = aws_launch_template.eks_infra_nodes.id
 }
 
 output "node_launch_template_latest_version" {
-  description = "Latest version of the worker node launch template"
-  value       = aws_launch_template.eks_nodes.latest_version
+  description = "Latest version of the infra worker node launch template"
+  value       = aws_launch_template.eks_infra_nodes.latest_version
 }
 
 # IAM Roles
