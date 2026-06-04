@@ -41,17 +41,33 @@ import tensorflow as tf
 from kserve import Model, ModelServer
 
 
-# ── Compatibility shim ────────────────────────────────────────────────────────
-# Model .h5 được train bằng TF cũ hơn có InputLayer config chứa 'batch_shape'
-# và 'optional' — hai kwargs này đã bị xóa khỏi tf_keras 2.15.
-# Override from_config để silently drop các kwargs không nhận ra.
+# ── Compatibility shims ──────────────────────────────────────────────────────
+# Shim 1: Model .h5 được train bằng TF cũ hơn có InputLayer config chứa
+# 'batch_shape' và 'optional' — hai kwargs này đã bị xóa khỏi tf_keras 2.15.
 class _CompatInputLayer(keras.layers.InputLayer):
     @classmethod
     def from_config(cls, config):
         config.pop("batch_shape", None)
         config.pop("optional", None)
         return super().from_config(config)
-# ─────────────────────────────────────────────────────────────────────────────
+
+# Shim 2: Model .h5 được save bằng Keras 3.x (standalone `keras` package) sẽ
+# serialize dtype của mỗi layer thành DTypePolicy({'name': 'float32', ...}).
+# tf_keras (Keras 2.x) không khai báo class này → TypeError khi deserialize.
+# Stub tối giản: chỉ cần from_config() trả về đúng tên policy để tf_keras
+# resolve dtype nội bộ.
+class _DTypePolicy:
+    """Minimal stub to deserialize Keras 3.x DTypePolicy saved in .h5 files."""
+    def __init__(self, name: str = "float32", **_):
+        self.name = name
+
+    @classmethod
+    def from_config(cls, config: dict):
+        return cls(name=config.get("name", "float32"))
+
+    def get_config(self):
+        return {"name": self.name}
+# ───────────────────────────────────────────────────────────────────────────────
 
 logger = logging.getLogger("kserve-serving")
 logging.basicConfig(
@@ -151,6 +167,9 @@ class SkinPredictionModel(Model):
                 "focal_loss": _dummy_focal_loss,
                 # Shim để bỏ qua batch_shape/optional trong InputLayer config
                 "InputLayer": _CompatInputLayer,
+                # Shim để deserialize DTypePolicy từ model save bằng Keras 3.x
+                # tf_keras (Keras 2.x) không biết class này → TypeError khi load
+                "DTypePolicy": _DTypePolicy,
             },
             compile=False,
         )
