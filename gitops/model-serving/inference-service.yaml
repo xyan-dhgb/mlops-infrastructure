@@ -18,7 +18,7 @@ spec:
       - name: kserve-container
         # Image is automatically updated by CI/CD after each successful build
         # Format tag: skin-cancer-predictor-YYYYMMDD-HHmmss (UTC)
-        image: 248563009693.dkr.ecr.ap-southeast-1.amazonaws.com/skin-cancer-predictor:skin-cancer-predictor-20260604-152233
+        image: 248563009693.dkr.ecr.ap-southeast-1.amazonaws.com/skin-cancer-predictor:skin-cancer-predictor-20260604-154314
 
         env:
           # STORAGE_URI triggers KServe to auto-inject storage-initializer init container.
