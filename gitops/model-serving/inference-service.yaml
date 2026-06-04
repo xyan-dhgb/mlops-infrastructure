@@ -14,9 +14,6 @@ spec:
         value: "ml"
         effect: "NoSchedule"
 
-    # Don't keep old ReplicaSet after successful rolling update
-    revisionHistoryLimit: 0
-
     containers:
       - name: kserve-container
         # Image is automatically updated by CI/CD after each successful build
