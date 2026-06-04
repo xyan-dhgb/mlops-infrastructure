@@ -60,6 +60,8 @@ class _DTypePolicy:
     """Minimal stub to deserialize Keras 3.x DTypePolicy saved in .h5 files."""
     def __init__(self, name: str = "float32", **_):
         self.name = name
+        self.compute_dtype = name
+        self.variable_dtype = name
 
     @classmethod
     def from_config(cls, config: dict):
