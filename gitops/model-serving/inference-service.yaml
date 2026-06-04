@@ -8,14 +8,14 @@ metadata:
     serving.kserve.io/deploymentMode: "RawDeployment"
 spec:
   predictor:
-    # Node 10-143 là GPU/ML node với taint workload=ml:NoSchedule
-    # → Phải có toleration này để pod schedule được vào ML node
-    # Node 20-125 (no taint) đã full 29/29 pods → không dùng được
     tolerations:
       - key: "workload"
         operator: "Equal"
         value: "ml"
         effect: "NoSchedule"
+
+    # Don't keep old ReplicaSet after successful rolling update
+    revisionHistoryLimit: 0
 
     containers:
       - name: kserve-container
