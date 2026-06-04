@@ -17,7 +17,7 @@ node_capacity_type    = "ON_DEMAND"
 node_desired_size     = 1
 node_min_size         = 1
 node_max_size         = 2
-enable_ml_node_group  = true
+node_disk_size_gb     = 40
 enable_cpu_node_group = true
 
 # Bastion Host

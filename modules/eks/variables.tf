@@ -61,6 +61,12 @@ variable "node_max_size" {
   type        = number
 }
 
+variable "node_disk_size_gb" {
+  description = "Root EBS volume size (GiB) for general worker nodes."
+  type        = number
+  default     = 40
+}
+
 # Optional ML Pipeline Node Group toggle
 variable "enable_ml_node_group" {
   description = "Whether to create the optional ML pipeline node group"

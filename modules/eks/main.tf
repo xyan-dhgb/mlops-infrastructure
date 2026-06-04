@@ -67,6 +67,16 @@ resource "aws_launch_template" "eks_nodes" {
   # The cluster SG is added automatically by EKS when using a managed node group.
   vpc_security_group_ids = [var.worker_nodes_security_group_id]
 
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.node_disk_size_gb
+      volume_type           = "gp3"
+      delete_on_termination = true
+      encrypted             = true
+    }
+  }
+
   # Use IMDSv2 (Instance Metadata Service v2) - security best practice
   metadata_options {
     http_endpoint               = "enabled"
