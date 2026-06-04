@@ -49,17 +49,17 @@ output "cluster_oidc_provider_arn" {
 # Node Group Information
 output "node_group_id" {
   description = "EKS node group ID"
-  value       = aws_eks_node_group.main.id
+  value       = aws_eks_node_group.infra_nodes.id
 }
 
 output "node_group_arn" {
   description = "EKS node group ARN"
-  value       = aws_eks_node_group.main.arn
+  value       = aws_eks_node_group.infra_nodes.arn
 }
 
 output "node_group_status" {
   description = "EKS node group status"
-  value       = aws_eks_node_group.main.status
+  value       = aws_eks_node_group.infra_nodes.status
 }
 
 output "cpu_node_group_id" {
