@@ -74,7 +74,7 @@ class _DTypePolicy:
 # vào config của mọi layer (Dense, Conv2D...). tf_keras (Keras 2.x) không hiểu
 # kwarg này → raise TypeError("Keyword argument not understood: quantization_config").
 # Monkey-patch Layer.from_config để strip nó đi cho TOÀN BỘ các layer.
-_original_layer_from_config = keras.engine.base_layer.Layer.from_config
+_original_layer_from_config = keras.layers.Layer.from_config
 
 @classmethod
 def _patched_layer_from_config(cls, config):
@@ -82,7 +82,7 @@ def _patched_layer_from_config(cls, config):
     # Gọi lại original classmethod (truy cập .__func__ vì Python classmethod binding)
     return _original_layer_from_config.__func__(cls, config)
 
-keras.engine.base_layer.Layer.from_config = _patched_layer_from_config
+keras.layers.Layer.from_config = _patched_layer_from_config
 # ───────────────────────────────────────────────────────────────────────────────
 
 logger = logging.getLogger("kserve-serving")
