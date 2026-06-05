@@ -1,0 +1,8 @@
+ubuntu@ip-10-0-2-172:~$ kubectl logs -n model-serving skin-prediction-predictor-6f5865b949-pp2jz -c kserve-container --tail=60
+2026-06-04 15:58:50.348863: I tensorflow/core/util/port.cc:113] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-06-04 15:58:50.386636: I tensorflow/core/platform/cpu_feature_guard.cc:182] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Traceback (most recent call last):
+  File "/app/serving.py", line 77, in <module>
+    _original_layer_from_config = keras.engine.base_layer.Layer.from_config
+AttributeError: module 'tf_keras' has no attribute 'engine'

@@ -93,14 +93,50 @@ rm -f /tmp/argocd
 # Verify installation
 argocd version --client
 
-echo "--- Waiting for EKS cluster '${cluster_name}' to become ACTIVE ---"
+echo "--- Waiting for EKS cluster 'mlops-infr-dev-eks' to become ACTIVE ---"
 aws eks wait cluster-active \
-  --region ${aws_region} \
-  --name ${cluster_name}
+  --region ap-southeast-1 \
+  --name mlops-infr-dev-eks
 
-aws eks update-kubeconfig --region ${aws_region} --name ${cluster_name}
+aws eks update-kubeconfig --region ap-southeast-1 --name mlops-infr-dev-eks
 
-echo "=== Bootstrap finished at $(date) ==="
+# Install kubectl top command to print the resource of each nodes
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
-## Check if user_data has completed
+kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
+{
+"op": "add",
+"path": "/spec/template/spec/hostNetwork",
+"value": true
+},
+{
+"op": "replace",
+"path": "/spec/template/spec/containers/0/args",
+"value": [
+   "--cert-dir=/tmp",
+   "--secure-port=4443",
+   "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
+   "--kubelet-use-node-status-port",
+   "--metric-resolution=15s",
+   "--kubelet-insecure-tls"
+]
+},
+{
+"op": "replace",
+"path": "/spec/template/spec/containers/0/ports/0/containerPort",
+"value": 4443
+}
+]'
+
+kubectl -n kube-system get pods -l k8s-app=metrics-server
+kubectl get apiservices -l k8s-app=metrics-server
+
+POD_NAME=$(kubectl -n kube-system get pods -l k8s-app=metrics-server -o jsonpath='{.items[0].metadata.name}')
+kubectl -n kube-system logs $POD_NAME
+
+echo "Finishing installing kubectl top command"
+
+echo "=== Basics tools install finished at $(date) ==="
+
+# Check if user_data has completed
 cloud-init status --wait
