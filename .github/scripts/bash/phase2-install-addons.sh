@@ -212,7 +212,7 @@ ssm_run 120 "📐 Configure kubectl" \
 ssm_run 1500 "⚙️ Install ArgoCD" \
   "${AWS_ENV_EXPORT}" \
   "# Idempotency: skip helm upgrade if chart version matches and all pods are Ready.
-   DEPLOYED_VERSION=\$(helm status argocd -n argocd -o json 2>/dev/null | grep -o '\"chart\":\"argo-cd-[^\"]*\"' | grep -o '[0-9][^\"]*' || echo '')
+   DEPLOYED_VERSION=\$(helm list -n argocd -o json 2>/dev/null | jq -r '.[0].chart // empty' | sed 's/argo-cd-//' || echo '')
    READY_COUNT=\$(kubectl get deploy argocd-server -n argocd -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo '0')
    if [ \"\${DEPLOYED_VERSION}\" = '7.5.2' ] && [ \"\${READY_COUNT:-0}\" -ge 1 ]; then
      echo \"✅ ArgoCD 7.5.2 already deployed and healthy (readyReplicas=\${READY_COUNT}) — skipping helm upgrade\"

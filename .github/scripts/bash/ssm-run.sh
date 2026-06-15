@@ -51,7 +51,10 @@ ssm_run() {
   # into invalid SSM commands such as "--namespace prometheus".
   local json_cmds parameters_json
   json_cmds=$(jq -cn --args '$ARGS.positional' "${cmds[@]}")
-  parameters_json=$(jq -cn --argjson commands "${json_cmds}" '{commands: $commands}')
+  parameters_json=$(jq -cn \
+    --argjson commands "${json_cmds}" \
+    --arg execTimeout "${timeout}" \
+    '{commands: $commands, executionTimeout: [$execTimeout]}')
 
   echo "🔵 [${label}] Sending SSM command (timeout: ${timeout}s)..."
 
