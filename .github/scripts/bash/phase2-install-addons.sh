@@ -209,7 +209,7 @@ ssm_run 60 "📐 Configure kubectl" \
 
 
 # Install ArgoCD.
-ssm_run 900 "⚙️ Install ArgoCD" \
+ssm_run 1500 "⚙️ Install ArgoCD" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "helm repo update argo" \
