@@ -211,15 +211,27 @@ ssm_run 60 "📐 Configure kubectl" \
 # Install ArgoCD.
 ssm_run 1500 "⚙️ Install ArgoCD" \
   "${AWS_ENV_EXPORT}" \
+  "# Idempotency: skip helm upgrade if chart version matches and all pods are Ready.
+   DEPLOYED_VERSION=\$(helm status argocd -n argocd -o json 2>/dev/null | grep -o '\"chart\":\"argo-cd-[^\"]*\"' | grep -o '[0-9][^\"]*' || echo '')
+   READY_COUNT=\$(kubectl get deploy argocd-server -n argocd -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo '0')
+   if [ \"\${DEPLOYED_VERSION}\" = '7.5.2' ] && [ \"\${READY_COUNT:-0}\" -ge 1 ]; then
+     echo \"✅ ArgoCD 7.5.2 already deployed and healthy (readyReplicas=\${READY_COUNT}) — skipping helm upgrade\"
+     SKIP_HELM=1
+   else
+     echo \"ArgoCD version='\${DEPLOYED_VERSION}' ready='\${READY_COUNT}' — proceeding with helm upgrade\"
+     SKIP_HELM=0
+   fi" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
-  "helm repo update argo" \
+  "timeout 60 helm repo update argo" \
   "kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -" \
-  "helm upgrade --install argocd argo/argo-cd \
-    --namespace argocd \
-    --version '7.5.2' \
-    --values /tmp/helm-values/argocd/values.yaml \
-    --force-conflicts \
-    --wait --timeout 10m" \
+  "if [ \"\${SKIP_HELM:-0}\" != '1' ]; then
+     helm upgrade --install argocd argo/argo-cd \
+       --namespace argocd \
+       --version '7.5.2' \
+       --values /tmp/helm-values/argocd/values.yaml \
+       --force-conflicts \
+       --wait --timeout 10m
+   fi" \
   "kubectl rollout status deployment/argocd-server -n argocd --timeout=300s" \
   "# ArgoCD stores admin.password as a bcrypt hash in argocd-secret.
    ARGOCD_ADMIN_PASSWORD_HASH=\$(echo '${ARGOCD_ADMIN_PASSWORD_HASH_B64}' | base64 -d)
@@ -227,8 +239,10 @@ ssm_run 1500 "⚙️ Install ArgoCD" \
      --type=merge \
      --patch \"{\\\"stringData\\\":{\\\"admin.password\\\":\\\"\${ARGOCD_ADMIN_PASSWORD_HASH}\\\",\\\"admin.passwordMtime\\\":\\\"\$(date -u +%FT%TZ)\\\"}}\"
    kubectl delete secret argocd-initial-admin-secret -n argocd 2>/dev/null || true
-   kubectl rollout restart deployment/argocd-server -n argocd
-   kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
+   if [ \"\${SKIP_HELM:-0}\" != '1' ]; then
+     kubectl rollout restart deployment/argocd-server -n argocd
+     kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
+   fi
    unset ARGOCD_ADMIN_PASSWORD_HASH
    echo 'ArgoCD admin password hash applied'" \
   "echo '✅ ArgoCD installed OK'"
@@ -238,7 +252,7 @@ ssm_run 1500 "⚙️ Install ArgoCD" \
 ssm_run 600 "Install Argo Workflows" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
-  "helm repo update argo" \
+  "timeout 60 helm repo update argo" \
   "kubectl create namespace argo-workflows --dry-run=client -o yaml | kubectl apply -f -" \
   "helm upgrade --install argo-workflows argo/argo-workflows \
     --namespace argo-workflows \
