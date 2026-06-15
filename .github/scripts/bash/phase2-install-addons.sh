@@ -263,11 +263,25 @@ ssm_run 600 "Install Argo Workflows" \
        helm rollback argo-workflows 0 -n argo-workflows 2>/dev/null || helm uninstall argo-workflows -n argo-workflows --no-hooks 2>/dev/null || true
        sleep 3
      fi
-     helm upgrade --install argo-workflows argo/argo-workflows \
+     if ! helm upgrade --install argo-workflows argo/argo-workflows \
        --namespace argo-workflows \
        --version '1.0.7' \
        --values /tmp/helm-values/argo-workflows/values.yaml \
-       --wait --timeout 10m
+       --wait --timeout 3m; then
+       echo \"❌ Helm upgrade/install failed! Fetching diagnostics...\"
+       echo \"=== Pods in argo-workflows namespace ===\"
+       kubectl get pods -n argo-workflows -o wide || true
+       echo \"=== Recent events in argo-workflows namespace ===\"
+       kubectl get events -n argo-workflows --sort-by='.metadata.creationTimestamp' | tail -n 30 || true
+       echo \"=== Describing and logging all pods in argo-workflows namespace ===\"
+       for p in \$(kubectl get pods -n argo-workflows -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+         echo \"--- Pod: \$p ---\"
+         kubectl describe pod \"\$p\" -n argo-workflows || true
+         echo \"--- Logs of Pod: \$p ---\"
+         kubectl logs \"\$p\" -n argo-workflows --all-containers --tail=50 || true
+       done
+       exit 1
+     fi
    fi" \
   "kubectl rollout status deployment/argo-workflows-server -n argo-workflows --timeout=300s" \
   "helm status argo-workflows -n argo-workflows" \
