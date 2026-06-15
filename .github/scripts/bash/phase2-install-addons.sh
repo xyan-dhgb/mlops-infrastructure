@@ -563,6 +563,13 @@ ssm_run 600 "⚙️ Install cert-manager" \
 helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
 helm repo update jetstack
 kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+# Clean up stuck pending-* release from a previously interrupted install
+RELEASE_STATUS=\$(helm status cert-manager -n cert-manager -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
+if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
+  echo \"⚠️  cert-manager release stuck in '\${RELEASE_STATUS}' — rolling back...\"
+  helm rollback cert-manager 0 -n cert-manager 2>/dev/null || helm uninstall cert-manager -n cert-manager --no-hooks 2>/dev/null || true
+  sleep 3
+fi
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --version 'v1.14.5' \
@@ -579,6 +586,12 @@ ssm_run 300 "⚙️ Install KServe CRDs" \
   "${AWS_ENV_EXPORT}" \
   "set -e
 kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -
+RELEASE_STATUS=\$(helm status kserve-crd -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
+if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
+  echo \"⚠️  kserve-crd release stuck in '\${RELEASE_STATUS}' — rolling back...\"
+  helm rollback kserve-crd 0 -n kserve 2>/dev/null || helm uninstall kserve-crd -n kserve --no-hooks 2>/dev/null || true
+  sleep 3
+fi
 helm upgrade --install kserve-crd \
   oci://ghcr.io/kserve/charts/kserve-crd \
   --namespace kserve \
@@ -595,6 +608,12 @@ echo '✅ KServe CRDs installed OK'"
 ssm_run 700 "⚙️ Install KServe (phase 1 - controller)" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -
+RELEASE_STATUS=\$(helm status kserve -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
+if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
+  echo \"⚠️  kserve release stuck in '\${RELEASE_STATUS}' — rolling back...\"
+  helm rollback kserve 0 -n kserve 2>/dev/null || helm uninstall kserve -n kserve --no-hooks 2>/dev/null || true
+  sleep 3
+fi
 helm upgrade --install kserve \
   oci://ghcr.io/kserve/charts/kserve \
   --namespace kserve \
@@ -657,6 +676,12 @@ echo '✅ KServe controller ready + webhook endpoint available'"
 ssm_run 300 "⚙️ Install KServe (phase 2 - serving runtimes)" \
   "${AWS_ENV_EXPORT}" \
   "set -e
+RELEASE_STATUS=\$(helm status kserve -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
+if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
+  echo \"⚠️  kserve release stuck in '\${RELEASE_STATUS}' — rolling back...\"
+  helm rollback kserve 0 -n kserve 2>/dev/null || helm uninstall kserve -n kserve --no-hooks 2>/dev/null || true
+  sleep 3
+fi
 helm upgrade --install kserve \
   oci://ghcr.io/kserve/charts/kserve \
   --namespace kserve \
