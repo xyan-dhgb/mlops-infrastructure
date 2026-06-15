@@ -249,7 +249,7 @@ ssm_run 1500 "⚙️ Install ArgoCD" \
 
 
 # Install Argo Workflows directly in phase2 so the UI can be tested before GitOps bootstrap.
-ssm_run 600 "Install Argo Workflows" \
+ssm_run 900 "Install Argo Workflows" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "timeout 60 helm repo update argo" \
