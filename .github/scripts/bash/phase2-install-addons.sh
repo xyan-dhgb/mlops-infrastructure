@@ -202,10 +202,10 @@ ssm_run 30 "🔗 Upload Helm values" \
 
 
 # Configure kubectl on the bastion.
-ssm_run 60 "📐 Configure kubectl" \
+ssm_run 120 "📐 Configure kubectl" \
   "${AWS_ENV_EXPORT}" \
-  "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}" \
-  "kubectl cluster-info"
+  "timeout 30 aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}" \
+  "kubectl cluster-info --request-timeout=20s"
 
 
 # Install ArgoCD.
