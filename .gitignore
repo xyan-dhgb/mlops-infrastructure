@@ -48,3 +48,4 @@ reports/
 __pycache__/
 .antigravitycli/
 .vscode/
+*.txt
