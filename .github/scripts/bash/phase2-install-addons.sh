@@ -263,10 +263,19 @@ ssm_run 900 "Install Argo Workflows" \
        helm uninstall argo-workflows -n argo-workflows --wait --no-hooks 2>/dev/null || true
        sleep 10
      fi
+     # CRDs are kept on uninstall (crds.keep=true). A fresh install would try to
+     # recreate them and abort with 'invalid ownership metadata'. Skip CRD
+     # templating when the Argo CRDs are already present on the cluster.
+     CRD_FLAG=''
+     if kubectl get crd workflows.argoproj.io >/dev/null 2>&1; then
+       CRD_FLAG='--set crds.install=false'
+       echo 'Argo CRDs already present — installing with crds.install=false'
+     fi
      if ! helm upgrade --install argo-workflows argo/argo-workflows \
        --namespace argo-workflows \
        --version '1.0.7' \
        --values /tmp/helm-values/argo-workflows/values.yaml \
+       \${CRD_FLAG} \
        --wait --timeout 8m; then
        echo \"❌ Helm upgrade/install failed! Fetching diagnostics...\"
        echo \"=== Pods in argo-workflows namespace ===\"
