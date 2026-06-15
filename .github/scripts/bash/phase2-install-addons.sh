@@ -424,7 +424,7 @@ REMOTE_CMD
 PROMETHEUS_HELM_CMD=$(cat <<'REMOTE_CMD'
 # Idempotency: skip if already deployed at correct version with pods ready.
 PROM_STATUS=$(helm list -n prometheus -o json 2>/dev/null | jq -r '.[] | select(.name=="prometheus") | .status' || echo '')
-PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c Running || echo 0)
+PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c Running)
 if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
   echo "✅ Prometheus already deployed and healthy (pods=${PROM_PODS}) — skipping helm upgrade"
 else
@@ -433,14 +433,31 @@ else
     echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — rolling back..."
     helm uninstall prometheus -n prometheus --wait --no-hooks 2>/dev/null || true
     sleep 10
+    # A previously interrupted install can leave the operator admission webhook
+    # pointing at a Service that no longer exists; the next install then fails
+    # fast with "failed calling webhook ...". Remove stale webhooks before reinstall.
+    kubectl delete validatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
+    kubectl delete mutatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
   fi
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
-  helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+  if ! helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
     --namespace prometheus \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --force-conflicts \
-    --wait --timeout 10m
+    --wait --timeout 10m; then
+    echo "❌ Prometheus helm install failed! Fetching diagnostics..."
+    echo "=== Pods in prometheus namespace ==="
+    kubectl get pods -n prometheus -o wide || true
+    echo "=== Recent events ==="
+    kubectl get events -n prometheus --sort-by='.metadata.creationTimestamp' | tail -n 40 || true
+    echo "=== Not-ready pod descriptions/logs ==="
+    for p in $(kubectl get pods -n prometheus --field-selector=status.phase!=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+      echo "--- describe ${p} ---"; kubectl describe pod "${p}" -n prometheus || true
+      echo "--- logs ${p} ---"; kubectl logs "${p}" -n prometheus --all-containers --tail=50 || true
+    done
+    exit 1
+  fi
 fi
 REMOTE_CMD
 )
@@ -551,7 +568,7 @@ kubectl patch clusterrole grafana-clusterrole \
 
 # Idempotency: skip if already deployed with pod ready.
 GRAFANA_STATUS=\$(helm list -n grafana -o json 2>/dev/null | jq -r '.[] | select(.name=="grafana") | .status' || echo '')
-GRAFANA_PODS=\$(kubectl get pods -n grafana -l app.kubernetes.io/name=grafana --no-headers 2>/dev/null | grep -c Running || echo 0)
+GRAFANA_PODS=\$(kubectl get pods -n grafana -l app.kubernetes.io/name=grafana --no-headers 2>/dev/null | grep -c Running)
 if [ "\${GRAFANA_STATUS}" = 'deployed' ] && [ "\${GRAFANA_PODS:-0}" -ge 1 ]; then
   echo "✅ Grafana already deployed and healthy (pods=\${GRAFANA_PODS}) — skipping helm upgrade"
 else
@@ -574,7 +591,7 @@ echo 'Monitoring stack installed OK'
 REMOTE_CMD
 )
 
-ssm_run 1500 "Install Monitoring" \
+ssm_run 2400 "Install Monitoring" \
   "${AWS_ENV_EXPORT}" \
   "${MONITORING_BOOTSTRAP_CMD}" \
   "${ALERTMANAGER_SECRET_CMD}" \
