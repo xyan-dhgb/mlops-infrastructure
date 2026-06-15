@@ -254,6 +254,7 @@ ssm_run 900 "Install Argo Workflows" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "timeout 60 helm repo update argo" \
   "kubectl create namespace argo-workflows --dry-run=client -o yaml | kubectl apply -f -" \
+  "kubectl create namespace kltn-mul-mlops --dry-run=client -o yaml | kubectl apply -f -" \
   "AW_STATUS=\$(helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].chart // empty' | sed 's/argo-workflows-//' || echo '')
    AW_PODS=\$(kubectl get deploy argo-workflows-server -n argo-workflows -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo '0')
    if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
