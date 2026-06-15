@@ -440,13 +440,8 @@ else
     kubectl delete mutatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
   fi
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
-  if ! helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-    --namespace prometheus \
-    --version '56.6.2' \
-    --values /tmp/helm-values/monitoring/prometheus/values.yaml \
-    --force-conflicts \
-    --wait --timeout 10m; then
-    echo "❌ Prometheus helm install failed! Fetching diagnostics..."
+
+  dump_prometheus_diagnostics() {
     echo "=== Pods in prometheus namespace ==="
     kubectl get pods -n prometheus -o wide || true
     echo "=== Recent events ==="
@@ -456,6 +451,36 @@ else
       echo "--- describe ${p} ---"; kubectl describe pod "${p}" -n prometheus || true
       echo "--- logs ${p} ---"; kubectl logs "${p}" -n prometheus --all-containers --tail=50 || true
     done
+  }
+
+  # Run helm in the background with a watchdog. If the install hangs (pods never
+  # become Ready, e.g. FailedScheduling on a too-small node), helm's own
+  # --timeout can be exceeded and SSM kills the whole command as TimedOut before
+  # any diagnostics run. The watchdog guarantees we capture cluster state and
+  # kill helm before that happens.
+  helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+    --namespace prometheus \
+    --version '56.6.2' \
+    --values /tmp/helm-values/monitoring/prometheus/values.yaml \
+    --force-conflicts \
+    --wait --timeout 10m &
+  HELM_PID=$!
+
+  ( sleep 690
+    if kill -0 "${HELM_PID}" 2>/dev/null; then
+      echo "⏰ Prometheus helm still running after 11m30s — dumping diagnostics and aborting..."
+      dump_prometheus_diagnostics
+      kill "${HELM_PID}" 2>/dev/null || true
+    fi ) &
+  WATCHDOG_PID=$!
+
+  if wait "${HELM_PID}"; then
+    kill "${WATCHDOG_PID}" 2>/dev/null || true
+    echo "✅ Prometheus helm install succeeded"
+  else
+    kill "${WATCHDOG_PID}" 2>/dev/null || true
+    echo "❌ Prometheus helm install failed or was aborted! Diagnostics:"
+    dump_prometheus_diagnostics
     exit 1
   fi
 fi
