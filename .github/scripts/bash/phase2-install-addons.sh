@@ -260,14 +260,14 @@ ssm_run 600 "Install Argo Workflows" \
      echo \"✅ Argo Workflows 1.0.7 already deployed — skipping\"
    else
      if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
-       helm rollback argo-workflows 0 -n argo-workflows 2>/dev/null || helm uninstall argo-workflows -n argo-workflows --no-hooks 2>/dev/null || true
-       sleep 3
+       helm uninstall argo-workflows -n argo-workflows --wait --no-hooks 2>/dev/null || true
+       sleep 10
      fi
      if ! helm upgrade --install argo-workflows argo/argo-workflows \
        --namespace argo-workflows \
        --version '1.0.7' \
        --values /tmp/helm-values/argo-workflows/values.yaml \
-       --wait --timeout 3m; then
+       --wait --timeout 8m; then
        echo \"❌ Helm upgrade/install failed! Fetching diagnostics...\"
        echo \"=== Pods in argo-workflows namespace ===\"
        kubectl get pods -n argo-workflows -o wide || true
@@ -421,8 +421,8 @@ else
   # Clean up stuck pending-* release
   if echo "${PROM_STATUS}" | grep -q '^pending-'; then
     echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — rolling back..."
-    helm rollback prometheus 0 -n prometheus 2>/dev/null || helm uninstall prometheus -n prometheus --no-hooks 2>/dev/null || true
-    sleep 3
+    helm uninstall prometheus -n prometheus --wait --no-hooks 2>/dev/null || true
+    sleep 10
   fi
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
   helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
@@ -547,8 +547,8 @@ if [ "\${GRAFANA_STATUS}" = 'deployed' ] && [ "\${GRAFANA_PODS:-0}" -ge 1 ]; the
 else
   if echo "\${GRAFANA_STATUS}" | grep -q '^pending-'; then
     echo "⚠️  grafana release stuck in '\${GRAFANA_STATUS}' — rolling back..."
-    helm rollback grafana 0 -n grafana 2>/dev/null || helm uninstall grafana -n grafana --no-hooks 2>/dev/null || true
-    sleep 3
+    helm uninstall grafana -n grafana --wait --no-hooks 2>/dev/null || true
+    sleep 10
   fi
   echo "Installing grafana (status='\${GRAFANA_STATUS}', pods=\${GRAFANA_PODS})..."
   helm upgrade --install grafana grafana/grafana \
