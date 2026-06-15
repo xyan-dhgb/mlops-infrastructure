@@ -567,13 +567,19 @@ kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -
 RELEASE_STATUS=\$(helm status cert-manager -n cert-manager -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
 if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
   echo \"⚠️  cert-manager release stuck in '\${RELEASE_STATUS}' — rolling back...\"
-  helm rollback cert-manager 0 -n cert-manager 2>/dev/null || helm uninstall cert-manager -n cert-manager --no-hooks 2>/dev/null || true
-  sleep 3
+  helm uninstall cert-manager -n cert-manager --wait --no-hooks 2>/dev/null || true
+  # Wait for Kubernetes to finalize resource deletion before reinstalling
+  echo 'Waiting for resources to be fully removed...'
+  kubectl wait --for=delete deployment/cert-manager -n cert-manager --timeout=60s 2>/dev/null || true
+  kubectl wait --for=delete deployment/cert-manager-webhook -n cert-manager --timeout=60s 2>/dev/null || true
+  kubectl wait --for=delete deployment/cert-manager-cainjector -n cert-manager --timeout=60s 2>/dev/null || true
+  sleep 10
 fi
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --version 'v1.14.5' \
   --values /tmp/helm-values/kserve/cert-manager-values.yaml \
+  --force \
   --wait --timeout 5m
 kubectl rollout status deployment/cert-manager -n cert-manager --timeout=120s
 kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
@@ -589,8 +595,8 @@ kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -
 RELEASE_STATUS=\$(helm status kserve-crd -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
 if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
   echo \"⚠️  kserve-crd release stuck in '\${RELEASE_STATUS}' — rolling back...\"
-  helm rollback kserve-crd 0 -n kserve 2>/dev/null || helm uninstall kserve-crd -n kserve --no-hooks 2>/dev/null || true
-  sleep 3
+  helm uninstall kserve-crd -n kserve --wait --no-hooks 2>/dev/null || true
+  sleep 10
 fi
 helm upgrade --install kserve-crd \
   oci://ghcr.io/kserve/charts/kserve-crd \
@@ -611,8 +617,8 @@ ssm_run 700 "⚙️ Install KServe (phase 1 - controller)" \
 RELEASE_STATUS=\$(helm status kserve -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
 if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
   echo \"⚠️  kserve release stuck in '\${RELEASE_STATUS}' — rolling back...\"
-  helm rollback kserve 0 -n kserve 2>/dev/null || helm uninstall kserve -n kserve --no-hooks 2>/dev/null || true
-  sleep 3
+  helm uninstall kserve -n kserve --wait --no-hooks 2>/dev/null || true
+  sleep 10
 fi
 helm upgrade --install kserve \
   oci://ghcr.io/kserve/charts/kserve \
@@ -679,8 +685,8 @@ ssm_run 300 "⚙️ Install KServe (phase 2 - serving runtimes)" \
 RELEASE_STATUS=\$(helm status kserve -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
 if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
   echo \"⚠️  kserve release stuck in '\${RELEASE_STATUS}' — rolling back...\"
-  helm rollback kserve 0 -n kserve 2>/dev/null || helm uninstall kserve -n kserve --no-hooks 2>/dev/null || true
-  sleep 3
+  helm uninstall kserve -n kserve --wait --no-hooks 2>/dev/null || true
+  sleep 10
 fi
 helm upgrade --install kserve \
   oci://ghcr.io/kserve/charts/kserve \
