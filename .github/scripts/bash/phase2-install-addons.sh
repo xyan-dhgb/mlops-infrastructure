@@ -254,11 +254,21 @@ ssm_run 600 "Install Argo Workflows" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "timeout 60 helm repo update argo" \
   "kubectl create namespace argo-workflows --dry-run=client -o yaml | kubectl apply -f -" \
-  "helm upgrade --install argo-workflows argo/argo-workflows \
-    --namespace argo-workflows \
-    --version '1.0.7' \
-    --values /tmp/helm-values/argo-workflows/values.yaml \
-    --wait --timeout 10m" \
+  "AW_STATUS=\$(helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].chart // empty' | sed 's/argo-workflows-//' || echo '')
+   AW_PODS=\$(kubectl get deploy argo-workflows-server -n argo-workflows -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo '0')
+   if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
+     echo \"✅ Argo Workflows 1.0.7 already deployed — skipping\"
+   else
+     if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
+       helm rollback argo-workflows 0 -n argo-workflows 2>/dev/null || helm uninstall argo-workflows -n argo-workflows --no-hooks 2>/dev/null || true
+       sleep 3
+     fi
+     helm upgrade --install argo-workflows argo/argo-workflows \
+       --namespace argo-workflows \
+       --version '1.0.7' \
+       --values /tmp/helm-values/argo-workflows/values.yaml \
+       --wait --timeout 10m
+   fi" \
   "kubectl rollout status deployment/argo-workflows-server -n argo-workflows --timeout=300s" \
   "helm status argo-workflows -n argo-workflows" \
   "echo 'Argo Workflows installed OK'"
@@ -268,12 +278,18 @@ ssm_run 600 "Install Argo Workflows" \
 ssm_run 120 "⚙️ Install NVIDIA Device Plugin" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add nvdp https://nvidia.github.io/k8s-device-plugin 2>/dev/null || true" \
-  "helm repo update nvdp" \
-  "helm upgrade --install nvidia-device-plugin nvdp/nvidia-device-plugin \
-    --namespace kube-system \
-    --version '0.17.1' \
-    --values /tmp/helm-values/eks/nvidia-device-plugin-values.yaml \
-    --wait --timeout 5m" \
+  "timeout 60 helm repo update nvdp" \
+  "NVDP_STATUS=\$(helm list -n kube-system -o json 2>/dev/null | jq -r '.[] | select(.name==\"nvidia-device-plugin\") | .status' || echo '')
+   NVDP_PODS=\$(kubectl get ds nvidia-device-plugin -n kube-system -o jsonpath='{.status.numberReady}' 2>/dev/null || echo '0')
+   if [ \"\${NVDP_STATUS}\" = 'deployed' ] && [ \"\${NVDP_PODS:-0}\" -ge 1 ]; then
+     echo \"✅ NVIDIA Device Plugin already deployed — skipping\"
+   else
+     helm upgrade --install nvidia-device-plugin nvdp/nvidia-device-plugin \
+       --namespace kube-system \
+       --version '0.17.1' \
+       --values /tmp/helm-values/eks/nvidia-device-plugin-values.yaml \
+       --wait --timeout 5m
+   fi" \
   "helm status nvidia-device-plugin -n kube-system" \
   "echo '✅ NVIDIA Device Plugin installed via Helm'"
 
@@ -350,7 +366,8 @@ ssm_run 720 "⚙️ Install MLflow" \
 MONITORING_BOOTSTRAP_CMD=$(cat <<'REMOTE_CMD'
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
 helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
-helm repo update
+timeout 60 helm repo update prometheus-community || true
+timeout 60 helm repo update grafana || true
 
 kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -
 REMOTE_CMD
@@ -381,12 +398,26 @@ REMOTE_CMD
 )
 
 PROMETHEUS_HELM_CMD=$(cat <<'REMOTE_CMD'
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-  --namespace prometheus \
-  --version '56.6.2' \
-  --values /tmp/helm-values/monitoring/prometheus/values.yaml \
-  --force-conflicts \
-  --wait --timeout 10m
+# Idempotency: skip if already deployed at correct version with pods ready.
+PROM_STATUS=$(helm list -n prometheus -o json 2>/dev/null | jq -r '.[] | select(.name=="prometheus") | .status' || echo '')
+PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c Running || echo 0)
+if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
+  echo "✅ Prometheus already deployed and healthy (pods=${PROM_PODS}) — skipping helm upgrade"
+else
+  # Clean up stuck pending-* release
+  if echo "${PROM_STATUS}" | grep -q '^pending-'; then
+    echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — rolling back..."
+    helm rollback prometheus 0 -n prometheus 2>/dev/null || helm uninstall prometheus -n prometheus --no-hooks 2>/dev/null || true
+    sleep 3
+  fi
+  echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
+  helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+    --namespace prometheus \
+    --version '56.6.2' \
+    --values /tmp/helm-values/monitoring/prometheus/values.yaml \
+    --force-conflicts \
+    --wait --timeout 10m
+fi
 REMOTE_CMD
 )
 
@@ -494,12 +525,25 @@ kubectl patch clusterrole grafana-clusterrole \
   -p '[{"op":"remove","path":"/metadata/managedFields"}]' \
   2>/dev/null || true
 
-helm upgrade --install grafana grafana/grafana \
-  --namespace grafana \
-  --version '7.3.0' \
-  --values /tmp/helm-values/monitoring/grafana/values.yaml \
-  --set adminPassword='${GRAFANA_ADMIN_PASSWORD}' \
-  --wait --timeout 5m
+# Idempotency: skip if already deployed with pod ready.
+GRAFANA_STATUS=\$(helm list -n grafana -o json 2>/dev/null | jq -r '.[] | select(.name=="grafana") | .status' || echo '')
+GRAFANA_PODS=\$(kubectl get pods -n grafana -l app.kubernetes.io/name=grafana --no-headers 2>/dev/null | grep -c Running || echo 0)
+if [ "\${GRAFANA_STATUS}" = 'deployed' ] && [ "\${GRAFANA_PODS:-0}" -ge 1 ]; then
+  echo "✅ Grafana already deployed and healthy (pods=\${GRAFANA_PODS}) — skipping helm upgrade"
+else
+  if echo "\${GRAFANA_STATUS}" | grep -q '^pending-'; then
+    echo "⚠️  grafana release stuck in '\${GRAFANA_STATUS}' — rolling back..."
+    helm rollback grafana 0 -n grafana 2>/dev/null || helm uninstall grafana -n grafana --no-hooks 2>/dev/null || true
+    sleep 3
+  fi
+  echo "Installing grafana (status='\${GRAFANA_STATUS}', pods=\${GRAFANA_PODS})..."
+  helm upgrade --install grafana grafana/grafana \
+    --namespace grafana \
+    --version '7.3.0' \
+    --values /tmp/helm-values/monitoring/grafana/values.yaml \
+    --set adminPassword='${GRAFANA_ADMIN_PASSWORD}' \
+    --wait --timeout 5m
+fi
 
 kubectl get configmap -n grafana -l grafana_dashboard=1
 echo 'Monitoring stack installed OK'
