@@ -284,6 +284,7 @@ ssm_run 900 "Install Argo Workflows" \
            \"https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_\${crd}.yaml\" 2>/dev/null || true
        done
        echo '✅ Argo CRDs re-applied'
+       CRD_FLAG='--set crds.install=false'
      fi
      if ! helm upgrade --install argo-workflows argo/argo-workflows \
        --namespace argo-workflows \
@@ -795,6 +796,13 @@ else
       echo '✅ cert-manager CRDs re-applied'
     fi
   fi
+  
+  # Adopt cert-manager CRDs into Helm to prevent "invalid ownership metadata" errors
+  echo "Adopting cert-manager CRDs into Helm..."
+  for crd in \$(kubectl get crd -o name 2>/dev/null | grep cert-manager.io); do
+    kubectl label "\${crd}" app.kubernetes.io/managed-by=Helm --overwrite 2>/dev/null || true
+    kubectl annotate "\${crd}" meta.helm.sh/release-name=cert-manager meta.helm.sh/release-namespace=cert-manager --overwrite 2>/dev/null || true
+  done
   # Remove stale webhooks from failed installs that would block reinstall
   kubectl delete validatingwebhookconfiguration cert-manager-webhook --ignore-not-found
   kubectl delete mutatingwebhookconfiguration cert-manager-webhook --ignore-not-found
