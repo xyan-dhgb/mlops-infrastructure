@@ -554,6 +554,7 @@ else
   helm upgrade --install prometheus /home/ubuntu/helm-workspace/charts/kube-prometheus-stack-56.6.2.tgz \
     --namespace prometheus \
     --values /home/ubuntu/helm-workspace/values/monitoring/prometheus/values.yaml \
+    --skip-crds \
     --force-conflicts \
     --wait --timeout 10m &
   HELM_PID=$!
