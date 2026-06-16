@@ -797,11 +797,11 @@ else
     fi
   fi
   
-  # Adopt cert-manager CRDs into Helm to prevent "invalid ownership metadata" errors
-  echo "Adopting cert-manager CRDs into Helm..."
+  # Adopt cert-manager CRDs into Helm to prevent 'invalid ownership metadata' errors
+  echo 'Adopting cert-manager CRDs into Helm...'
   for crd in \$(kubectl get crd -o name 2>/dev/null | grep cert-manager.io); do
-    kubectl label "\${crd}" app.kubernetes.io/managed-by=Helm --overwrite 2>/dev/null || true
-    kubectl annotate "\${crd}" meta.helm.sh/release-name=cert-manager meta.helm.sh/release-namespace=cert-manager --overwrite 2>/dev/null || true
+    kubectl label \"\${crd}\" app.kubernetes.io/managed-by=Helm --overwrite 2>/dev/null || true
+    kubectl annotate \"\${crd}\" meta.helm.sh/release-name=cert-manager meta.helm.sh/release-namespace=cert-manager --overwrite 2>/dev/null || true
   done
   # Remove stale webhooks from failed installs that would block reinstall
   kubectl delete validatingwebhookconfiguration cert-manager-webhook --ignore-not-found
