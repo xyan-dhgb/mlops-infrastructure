@@ -520,6 +520,15 @@ else
   echo "🧹 Removing leftover PVCs in prometheus namespace..."
   kubectl delete pvc -n prometheus --all --ignore-not-found 2>/dev/null || true
 
+  # FIX 4: Remove stale Helm release secrets. `helm uninstall` sometimes
+  # leaves behind the release secret (sh.helm.release.v1.prometheus.vN) in
+  # `pending-install` state. When `helm upgrade --install` runs next, it
+  # sees this secret and thinks an install is already in-progress, causing
+  # it to hang indefinitely waiting for resources that were never created.
+  echo "🧹 Removing stale Helm release secrets..."
+  kubectl delete secrets -n prometheus -l owner=helm,name=prometheus \
+    --ignore-not-found 2>/dev/null || true
+
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
 
   dump_prometheus_diagnostics() {
