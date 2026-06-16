@@ -260,8 +260,8 @@ ssm_run 900 "Install Argo Workflows" \
    if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
      echo \"✅ Argo Workflows 1.0.7 already deployed — skipping\"
    else
-     if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
-       echo \"⚠️  argo-workflows release stuck — uninstalling...\"
+     if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -qE '^(pending-|failed)'; then
+       echo \"⚠️  argo-workflows release in broken state — uninstalling...\"
        helm uninstall argo-workflows -n argo-workflows --wait --no-hooks 2>/dev/null || true
        sleep 10
      fi
@@ -437,16 +437,11 @@ PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus 
 if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
   echo "✅ Prometheus already deployed and healthy (pods=${PROM_PODS}) — skipping helm upgrade"
 else
-  # Clean up stuck pending-* release
-  if echo "${PROM_STATUS}" | grep -q '^pending-'; then
-    echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — uninstalling..."
+  # Clean up broken release (pending-* or failed) before fresh install
+  if echo "${PROM_STATUS}" | grep -qE '^(pending-|failed)'; then
+    echo "⚠️  prometheus release in '${PROM_STATUS}' — uninstalling for clean slate..."
     helm uninstall prometheus -n prometheus --wait --no-hooks 2>/dev/null || true
     sleep 10
-    # A previously interrupted install can leave the operator admission webhook
-    # pointing at a Service that no longer exists; the next install then fails
-    # fast with "failed calling webhook ...". Remove stale webhooks before reinstall.
-    kubectl delete validatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
-    kubectl delete mutatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
     # Ensure Prometheus Operator CRDs exist after uninstall — helm uninstall may remove them
     if ! kubectl get crd prometheuses.monitoring.coreos.com >/dev/null 2>&1; then
       echo "📦 Re-applying kube-prometheus-stack CRDs..."
@@ -457,6 +452,13 @@ else
       echo "✅ CRDs re-applied"
     fi
   fi
+
+  # A previously interrupted or failed install can leave the operator admission
+  # webhook pointing at a Service that no longer exists; the next install then
+  # hangs forever because every kubectl apply waits for the dead webhook to respond.
+  # Always remove stale webhooks before (re)install.
+  kubectl delete validatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
+  kubectl delete mutatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
 
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
 
@@ -618,8 +620,8 @@ GRAFANA_PODS=\$(kubectl get pods -n grafana -l app.kubernetes.io/name=grafana --
 if [ "\${GRAFANA_STATUS}" = 'deployed' ] && [ "\${GRAFANA_PODS:-0}" -ge 1 ]; then
   echo "✅ Grafana already deployed and healthy (pods=\${GRAFANA_PODS}) — skipping helm upgrade"
 else
-  if echo "\${GRAFANA_STATUS}" | grep -q '^pending-'; then
-    echo "⚠️  grafana release stuck in '\${GRAFANA_STATUS}' — rolling back..."
+  if echo "\${GRAFANA_STATUS}" | grep -qE '^(pending-|failed)'; then
+    echo "⚠️  grafana release in '\${GRAFANA_STATUS}' — uninstalling for clean slate..."
     helm uninstall grafana -n grafana --wait --no-hooks 2>/dev/null || true
     sleep 10
   fi
@@ -694,10 +696,10 @@ ssm_run 600 "⚙️ Install cert-manager" \
 helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
 helm repo update jetstack
 kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
-# Clean up stuck pending-* release from a previously interrupted install
+# Clean up broken release (pending-* or failed) from a previously interrupted install
 RELEASE_STATUS=\$(helm status cert-manager -n cert-manager -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
-if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
-  echo \"⚠️  cert-manager release stuck in '\${RELEASE_STATUS}' — rolling back...\"
+if echo \"\${RELEASE_STATUS}\" | grep -qE '^(pending-|failed)'; then
+  echo \"⚠️  cert-manager release in '\${RELEASE_STATUS}' — uninstalling for clean slate...\"
   helm uninstall cert-manager -n cert-manager --wait --no-hooks 2>/dev/null || true
   # Wait for Kubernetes to finalize resource deletion before reinstalling
   echo 'Waiting for resources to be fully removed...'
@@ -706,6 +708,9 @@ if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
   kubectl wait --for=delete deployment/cert-manager-cainjector -n cert-manager --timeout=60s 2>/dev/null || true
   sleep 10
 fi
+# Remove stale webhooks from failed installs that would block reinstall
+kubectl delete validatingwebhookconfiguration cert-manager-webhook --ignore-not-found
+kubectl delete mutatingwebhookconfiguration cert-manager-webhook --ignore-not-found
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --version 'v1.14.5' \
@@ -724,8 +729,8 @@ ssm_run 300 "⚙️ Install KServe CRDs" \
   "set -e
 kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -
 RELEASE_STATUS=\$(helm status kserve-crd -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
-if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
-  echo \"⚠️  kserve-crd release stuck in '\${RELEASE_STATUS}' — rolling back...\"
+if echo \"\${RELEASE_STATUS}\" | grep -qE '^(pending-|failed)'; then
+  echo \"⚠️  kserve-crd release in '\${RELEASE_STATUS}' — uninstalling for clean slate...\"
   helm uninstall kserve-crd -n kserve --wait --no-hooks 2>/dev/null || true
   sleep 10
 fi
@@ -746,11 +751,14 @@ ssm_run 700 "⚙️ Install KServe (phase 1 - controller)" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace model-serving --dry-run=client -o yaml | kubectl apply -f -
 RELEASE_STATUS=\$(helm status kserve -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
-if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
-  echo \"⚠️  kserve release stuck in '\${RELEASE_STATUS}' — rolling back...\"
+if echo \"\${RELEASE_STATUS}\" | grep -qE '^(pending-|failed)'; then
+  echo \"⚠️  kserve release in '\${RELEASE_STATUS}' — uninstalling for clean slate...\"
   helm uninstall kserve -n kserve --wait --no-hooks 2>/dev/null || true
   sleep 10
 fi
+# Remove stale KServe webhooks that block inferenceservice creation/updates
+kubectl delete validatingwebhookconfiguration inferenceservice.serving.kserve.io trainedmodel.serving.kserve.io --ignore-not-found
+kubectl delete mutatingwebhookconfiguration inferenceservice.serving.kserve.io --ignore-not-found
 helm upgrade --install kserve \
   oci://ghcr.io/kserve/charts/kserve \
   --namespace kserve \
@@ -814,11 +822,14 @@ ssm_run 300 "⚙️ Install KServe (phase 2 - serving runtimes)" \
   "${AWS_ENV_EXPORT}" \
   "set -e
 RELEASE_STATUS=\$(helm status kserve -n kserve -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
-if echo \"\${RELEASE_STATUS}\" | grep -q '^pending-'; then
-  echo \"⚠️  kserve release stuck in '\${RELEASE_STATUS}' — rolling back...\"
+if echo \"\${RELEASE_STATUS}\" | grep -qE '^(pending-|failed)'; then
+  echo \"⚠️  kserve release in '\${RELEASE_STATUS}' — uninstalling for clean slate...\"
   helm uninstall kserve -n kserve --wait --no-hooks 2>/dev/null || true
   sleep 10
 fi
+# Remove stale KServe webhooks that block inferenceservice creation/updates
+kubectl delete validatingwebhookconfiguration inferenceservice.serving.kserve.io trainedmodel.serving.kserve.io --ignore-not-found
+kubectl delete mutatingwebhookconfiguration inferenceservice.serving.kserve.io --ignore-not-found
 helm upgrade --install kserve \
   oci://ghcr.io/kserve/charts/kserve \
   --namespace kserve \
