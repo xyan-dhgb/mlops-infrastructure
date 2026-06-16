@@ -249,16 +249,18 @@ ssm_run 1500 "⚙️ Install ArgoCD" \
 
 
 # Install Argo Workflows directly in phase2 so the UI can be tested before GitOps bootstrap.
-ssm_run 600 "Install Argo Workflows" \
+ssm_run 900 "Install Argo Workflows" \
   "${AWS_ENV_EXPORT}" \
   "helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true" \
   "timeout 60 helm repo update argo" \
   "kubectl create namespace argo-workflows --dry-run=client -o yaml | kubectl apply -f -" \
+  "kubectl create namespace kltn-mul-mlops --dry-run=client -o yaml | kubectl apply -f -" \
   "AW_STATUS=\$(helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].chart // empty' | sed 's/argo-workflows-//' || echo '')
    AW_PODS=\$(kubectl get deploy argo-workflows-server -n argo-workflows -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo '0')
    if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
      echo \"✅ Argo Workflows 1.0.7 already deployed — skipping\"
    else
+<<<<<<< HEAD
       if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
         echo \"⚠️  argo-workflows release stuck — attempting rollback...\"
         if ! helm rollback argo-workflows 0 -n argo-workflows 2>/dev/null; then
@@ -287,11 +289,26 @@ ssm_run 600 "Install Argo Workflows" \
           sleep 3
         fi
       fi
+=======
+     if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
+       helm uninstall argo-workflows -n argo-workflows --wait --no-hooks 2>/dev/null || true
+       sleep 10
+     fi
+     # CRDs are kept on uninstall (crds.keep=true). A fresh install would try to
+     # recreate them and abort with 'invalid ownership metadata'. Skip CRD
+     # templating when the Argo CRDs are already present on the cluster.
+     CRD_FLAG=''
+     if kubectl get crd workflows.argoproj.io >/dev/null 2>&1; then
+       CRD_FLAG='--set crds.install=false'
+       echo 'Argo CRDs already present — installing with crds.install=false'
+     fi
+>>>>>>> 412be77096903dec3830281504aa0cabbd3b9e71
      if ! helm upgrade --install argo-workflows argo/argo-workflows \
        --namespace argo-workflows \
        --version '1.0.7' \
        --values /tmp/helm-values/argo-workflows/values.yaml \
-       --wait --timeout 3m; then
+       \${CRD_FLAG} \
+       --wait --timeout 8m; then
        echo \"❌ Helm upgrade/install failed! Fetching diagnostics...\"
        echo \"=== Pods in argo-workflows namespace ===\"
        kubectl get pods -n argo-workflows -o wide || true
@@ -438,12 +455,13 @@ REMOTE_CMD
 PROMETHEUS_HELM_CMD=$(cat <<'REMOTE_CMD'
 # Idempotency: skip if already deployed at correct version with pods ready.
 PROM_STATUS=$(helm list -n prometheus -o json 2>/dev/null | jq -r '.[] | select(.name=="prometheus") | .status' || echo '')
-PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c Running || echo 0)
+PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c Running)
 if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
   echo "✅ Prometheus already deployed and healthy (pods=${PROM_PODS}) — skipping helm upgrade"
 else
   # Clean up stuck pending-* release — prefer rollback to preserve CRDs
   if echo "${PROM_STATUS}" | grep -q '^pending-'; then
+<<<<<<< HEAD
     echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — attempting rollback..."
     if ! helm rollback prometheus 0 -n prometheus 2>/dev/null; then
       echo "⚠️  rollback failed — uninstalling (keeping CRDs)..."
@@ -476,14 +494,47 @@ else
       echo "✅ rollback succeeded"
       sleep 3
     fi
+=======
+    echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — rolling back..."
+    helm uninstall prometheus -n prometheus --wait --no-hooks 2>/dev/null || true
+    sleep 10
+    # A previously interrupted install can leave the operator admission webhook
+    # pointing at a Service that no longer exists; the next install then fails
+    # fast with "failed calling webhook ...". Remove stale webhooks before reinstall.
+    kubectl delete validatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
+    kubectl delete mutatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
+>>>>>>> 412be77096903dec3830281504aa0cabbd3b9e71
   fi
 
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
+<<<<<<< HEAD
   if ! helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+=======
+
+  dump_prometheus_diagnostics() {
+    echo "=== Pods in prometheus namespace ==="
+    kubectl get pods -n prometheus -o wide || true
+    echo "=== Recent events ==="
+    kubectl get events -n prometheus --sort-by='.metadata.creationTimestamp' | tail -n 40 || true
+    echo "=== Not-ready pod descriptions/logs ==="
+    for p in $(kubectl get pods -n prometheus --field-selector=status.phase!=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+      echo "--- describe ${p} ---"; kubectl describe pod "${p}" -n prometheus || true
+      echo "--- logs ${p} ---"; kubectl logs "${p}" -n prometheus --all-containers --tail=50 || true
+    done
+  }
+
+  # Run helm in the background with a watchdog. If the install hangs (pods never
+  # become Ready, e.g. FailedScheduling on a too-small node), helm's own
+  # --timeout can be exceeded and SSM kills the whole command as TimedOut before
+  # any diagnostics run. The watchdog guarantees we capture cluster state and
+  # kill helm before that happens.
+  helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+>>>>>>> 412be77096903dec3830281504aa0cabbd3b9e71
     --namespace prometheus \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --force-conflicts \
+<<<<<<< HEAD
     --wait --timeout 5m; then
     echo "❌ Prometheus helm install failed! Diagnostics:"
     echo "=== Pods in prometheus namespace ==="
@@ -499,6 +550,26 @@ else
       echo "--- logs ${p} ---"
       kubectl logs "${p}" -n prometheus --all-containers --tail=30 || true
     done
+=======
+    --wait --timeout 10m &
+  HELM_PID=$!
+
+  ( sleep 690
+    if kill -0 "${HELM_PID}" 2>/dev/null; then
+      echo "⏰ Prometheus helm still running after 11m30s — dumping diagnostics and aborting..."
+      dump_prometheus_diagnostics
+      kill "${HELM_PID}" 2>/dev/null || true
+    fi ) &
+  WATCHDOG_PID=$!
+
+  if wait "${HELM_PID}"; then
+    kill "${WATCHDOG_PID}" 2>/dev/null || true
+    echo "✅ Prometheus helm install succeeded"
+  else
+    kill "${WATCHDOG_PID}" 2>/dev/null || true
+    echo "❌ Prometheus helm install failed or was aborted! Diagnostics:"
+    dump_prometheus_diagnostics
+>>>>>>> 412be77096903dec3830281504aa0cabbd3b9e71
     exit 1
   fi
 fi
@@ -611,14 +682,14 @@ kubectl patch clusterrole grafana-clusterrole \
 
 # Idempotency: skip if already deployed with pod ready.
 GRAFANA_STATUS=\$(helm list -n grafana -o json 2>/dev/null | jq -r '.[] | select(.name=="grafana") | .status' || echo '')
-GRAFANA_PODS=\$(kubectl get pods -n grafana -l app.kubernetes.io/name=grafana --no-headers 2>/dev/null | grep -c Running || echo 0)
+GRAFANA_PODS=\$(kubectl get pods -n grafana -l app.kubernetes.io/name=grafana --no-headers 2>/dev/null | grep -c Running)
 if [ "\${GRAFANA_STATUS}" = 'deployed' ] && [ "\${GRAFANA_PODS:-0}" -ge 1 ]; then
   echo "✅ Grafana already deployed and healthy (pods=\${GRAFANA_PODS}) — skipping helm upgrade"
 else
   if echo "\${GRAFANA_STATUS}" | grep -q '^pending-'; then
     echo "⚠️  grafana release stuck in '\${GRAFANA_STATUS}' — rolling back..."
-    helm rollback grafana 0 -n grafana 2>/dev/null || helm uninstall grafana -n grafana --no-hooks 2>/dev/null || true
-    sleep 3
+    helm uninstall grafana -n grafana --wait --no-hooks 2>/dev/null || true
+    sleep 10
   fi
   echo "Installing grafana (status='\${GRAFANA_STATUS}', pods=\${GRAFANA_PODS})..."
   helm upgrade --install grafana grafana/grafana \
@@ -634,7 +705,7 @@ echo 'Monitoring stack installed OK'
 REMOTE_CMD
 )
 
-ssm_run 1500 "Install Monitoring" \
+ssm_run 2400 "Install Monitoring" \
   "${AWS_ENV_EXPORT}" \
   "${MONITORING_BOOTSTRAP_CMD}" \
   "${ALERTMANAGER_SECRET_CMD}" \
