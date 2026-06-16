@@ -861,7 +861,6 @@ helm upgrade --install kserve \
   --version 'v0.13.1' \
   --values /home/ubuntu/helm-workspace/values/kserve/kserve-values.yaml \
   --skip-crds \
-  --force-conflicts \
   --timeout 10m || true
 echo 'Waiting for kserve-controller-manager pod to be Running...'
 # Detect ImagePullBackOff early before waiting for rollout to time out.
@@ -931,7 +930,6 @@ helm upgrade --install kserve \
   --namespace kserve \
   --version 'v0.13.1' \
   --values /home/ubuntu/helm-workspace/values/kserve/kserve-values.yaml \
-  --force-conflicts \
   --wait --timeout 5m
 kubectl get clusterservingruntimes.serving.kserve.io 2>/dev/null | head -5
 echo '✅ KServe installed OK'"
