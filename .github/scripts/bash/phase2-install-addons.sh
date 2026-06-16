@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+=#!/usr/bin/env bash
 # Phase 2: upload values -> configure kubectl -> install add-ons via AWS SSM
 
 set -euo pipefail
@@ -433,7 +433,7 @@ REMOTE_CMD
 PROMETHEUS_HELM_CMD=$(cat <<'REMOTE_CMD'
 # Idempotency: skip if already deployed at correct version with pods ready.
 PROM_STATUS=$(helm list -n prometheus -o json 2>/dev/null | jq -r '.[] | select(.name=="prometheus") | .status' || echo '')
-PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c Running)
+PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c Running || echo 0)
 if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
   echo "✅ Prometheus already deployed and healthy (pods=${PROM_PODS}) — skipping helm upgrade"
 else
@@ -453,47 +453,102 @@ else
     fi
   fi
 
-  # A previously interrupted or failed install can leave the operator admission
-  # webhook pointing at a Service that no longer exists; the next install then
-  # hangs forever because every kubectl apply waits for the dead webhook to respond.
-  # Always remove stale webhooks before (re)install.
-  kubectl delete validatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
-  kubectl delete mutatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
+  # FIX 1: Remove ALL stale prometheus/monitoring webhook configurations by pattern.
+  # The old code only deleted one hardcoded name; a partial or renamed install can
+  # leave additional webhook configs pointing at dead services, causing every
+  # subsequent kubectl apply to hang until the API server times out each call.
+  echo "🧹 Removing stale prometheus/monitoring webhook configurations..."
+  kubectl get validatingwebhookconfiguration -o name 2>/dev/null \
+    | grep -E 'prometheus|monitoring' \
+    | xargs -r kubectl delete --ignore-not-found || true
+  kubectl get mutatingwebhookconfiguration -o name 2>/dev/null \
+    | grep -E 'prometheus|monitoring' \
+    | xargs -r kubectl delete --ignore-not-found || true
+
+  # FIX 2: Remove leftover Helm hook jobs from the previous failed install.
+  # kube-prometheus-stack ships pre-install/post-install hook jobs (admission-create,
+  # admission-patch). If these are in a completed/failed state from a prior run,
+  # Helm re-uses the job name and the new job fails to be created, causing helm
+  # to hang waiting for a hook that will never start.
+  echo "🧹 Removing leftover Helm hook jobs..."
+  kubectl delete jobs -n prometheus -l app.kubernetes.io/managed-by=Helm \
+    --ignore-not-found 2>/dev/null || true
+  # Also delete by the specific names kube-prometheus-stack uses
+  kubectl delete job \
+    prometheus-kube-prometheus-admission-create \
+    prometheus-kube-prometheus-admission-patch \
+    -n prometheus --ignore-not-found 2>/dev/null || true
+
+  # FIX 3: Remove leftover PVCs. helm uninstall intentionally keeps PVCs to
+  # prevent data loss. On a re-install, Prometheus pods may hang in Pending
+  # waiting for a PV that is stuck in Released/Terminating state.
+  echo "🧹 Removing leftover PVCs in prometheus namespace..."
+  kubectl delete pvc -n prometheus --all --ignore-not-found 2>/dev/null || true
+
+  # FIX 4: Pre-pull the chart BEFORE starting the background install.
+  # helm's --timeout flag only governs Kubernetes resource operations, NOT the
+  # initial chart-fetch/untar/render phase. A slow download (large chart ~20 MB,
+  # cold cache, or network blip) will cause helm to appear to hang with zero pods
+  # and zero events — exactly the symptom we observed. Pre-pulling the chart ensures
+  # the background process goes straight to API calls where the timeout applies.
+  echo "📦 Pre-pulling kube-prometheus-stack chart (version 56.6.2)..."
+  mkdir -p /tmp/helm-charts
+  if [ ! -f /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz ]; then
+    helm pull prometheus-community/kube-prometheus-stack \
+      --version 56.6.2 \
+      --destination /tmp/helm-charts/
+  else
+    echo "  Chart already cached at /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz"
+  fi
+  if [ ! -f /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz ]; then
+    echo "❌ Chart pull failed — check connectivity to prometheus-community repo"
+    exit 1
+  fi
+  echo "✅ Chart pre-pulled OK"
 
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
 
   dump_prometheus_diagnostics() {
     echo "=== Pods in prometheus namespace ==="
     kubectl get pods -n prometheus -o wide || true
+    echo "=== Jobs in prometheus namespace ==="
+    kubectl get jobs -n prometheus || true
     echo "=== Recent events ==="
     kubectl get events -n prometheus --sort-by='.metadata.creationTimestamp' | tail -n 40 || true
     echo "=== CRDs check ==="
     kubectl get crd | grep -E 'monitoring.coreos.com|prometheus' || echo "NO PROMETHEUS CRDs FOUND"
+    echo "=== Webhook configurations ==="
+    kubectl get validatingwebhookconfiguration 2>/dev/null | grep -E 'prometheus|monitoring' || echo "  none"
+    kubectl get mutatingwebhookconfiguration 2>/dev/null | grep -E 'prometheus|monitoring' || echo "  none"
+    echo "=== PVCs in prometheus namespace ==="
+    kubectl get pvc -n prometheus || true
     echo "=== Not-ready pod descriptions/logs ==="
-    for p in $(kubectl get pods -n prometheus --field-selector=status.phase!=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    for p in $(kubectl get pods -n prometheus --field-selector=status.phase!=Running \
+        -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
       echo "--- describe ${p} ---"; kubectl describe pod "${p}" -n prometheus || true
       echo "--- logs ${p} ---"; kubectl logs "${p}" -n prometheus --all-containers --tail=50 || true
     done
   }
 
-  # Run helm in the background with a watchdog. If the install hangs (pods never
-  # become Ready, e.g. FailedScheduling on a too-small node), helm's own
-  # --timeout can be exceeded and SSM kills the whole command as TimedOut before
-  # any diagnostics run. The watchdog guarantees we capture cluster state and
-  # kill helm before that happens.
-  helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+  # FIX 5: Install from pre-pulled local chart (no remote fetch during bg process).
+  # FIX 6: Watchdog fires at 9m (540s) — BEFORE helm's own 10m --timeout.
+  # This guarantees diagnostics are captured while the cluster is still in its
+  # intermediate state; helm then self-terminates cleanly at the 10m mark, which
+  # triggers the `wait` below to return non-zero and run the final diagnostic dump.
+  # The old watchdog fired at 11m30s (AFTER helm's 10m timeout), which meant helm
+  # could exit before the watchdog ran — the watchdog was effectively a dead letter.
+  helm upgrade --install prometheus /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz \
     --namespace prometheus \
-    --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --force-conflicts \
     --wait --timeout 10m &
   HELM_PID=$!
 
-  ( sleep 690
+  ( sleep 540
     if kill -0 "${HELM_PID}" 2>/dev/null; then
-      echo "⏰ Prometheus helm still running after 11m30s — dumping diagnostics and aborting..."
+      echo "⏰ Prometheus helm still running after 9m — dumping early diagnostics (helm will self-timeout in ~1m)..."
       dump_prometheus_diagnostics
-      kill "${HELM_PID}" 2>/dev/null || true
+      # Do NOT kill helm here — let it self-timeout at 10m for a clean exit code.
     fi ) &
   WATCHDOG_PID=$!
 
@@ -502,7 +557,7 @@ else
     echo "✅ Prometheus helm install succeeded"
   else
     kill "${WATCHDOG_PID}" 2>/dev/null || true
-    echo "❌ Prometheus helm install failed or was aborted! Diagnostics:"
+    echo "❌ Prometheus helm install failed or timed out! Diagnostics:"
     dump_prometheus_diagnostics
     exit 1
   fi
