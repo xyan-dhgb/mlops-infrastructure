@@ -164,7 +164,7 @@ CICD_METRICS_B64=$(tar -C "${CICD_METRICS_RENDER_DIR}" -czf - . | base64 -w 0)
 
 
 # Upload all Helm values to the bastion.
-ssm_run 30 "🔗 Upload Helm values" \
+ssm_run 120 "🔗 Upload Helm values" \
   "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/argo-workflows /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/monitoring/cicd-metrics /tmp/helm-values/cloudflare /tmp/helm-values/eks /tmp/helm-values/kserve" \
   "echo '${ARGOCD_B64}' | base64 -d > /tmp/helm-values/argocd/values.yaml" \
   "echo '${ARGO_WORKFLOWS_B64}' | base64 -d > /tmp/helm-values/argo-workflows/values.yaml" \
@@ -432,9 +432,38 @@ REMOTE_CMD
 )
 
 PROMETHEUS_HELM_CMD=$(cat <<'REMOTE_CMD'
+# Guard: /tmp is ephemeral on the bastion — if it was cleared between the
+# upload step and this install step, fail immediately with a clear message
+# instead of letting helm hang for 10m against a missing values file.
+PROM_VALUES=/tmp/helm-values/monitoring/prometheus/values.yaml
+if [ ! -f "${PROM_VALUES}" ]; then
+  echo "❌ FATAL: ${PROM_VALUES} not found — /tmp was cleared after the upload step."
+  echo "   Re-run the pipeline from the beginning so values are re-uploaded."
+  exit 1
+fi
+
 # Idempotency: skip if already deployed at correct version with pods ready.
 # kube-prometheus-stack uses label app.kubernetes.io/name=prometheus for the StatefulSet pods.
 # We also check the prometheus-operator deployment which uses app.kubernetes.io/name=prometheus-operator.
+# Always pre-pull the chart regardless of install/skip decision.
+# /tmp is ephemeral on the bastion — the chart cache may have been cleared
+# since the last run. Pre-pulling here guarantees helm never fetches remotely
+# during the background install process where the --timeout would hide the failure.
+echo "📦 Pre-pulling kube-prometheus-stack chart (version 56.6.2)..."
+mkdir -p /tmp/helm-charts
+if [ ! -f /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz ]; then
+  helm pull prometheus-community/kube-prometheus-stack \
+    --version 56.6.2 \
+    --destination /tmp/helm-charts/
+else
+  echo "  Chart already cached at /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz"
+fi
+if [ ! -f /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz ]; then
+  echo "❌ Chart pull failed — check connectivity to prometheus-community repo"
+  exit 1
+fi
+echo "✅ Chart pre-pulled OK"
+
 PROM_STATUS=$(helm list -n prometheus -o json 2>/dev/null | jq -r '.[] | select(.name=="prometheus") | .status' || echo '')
 PROM_PODS=$(kubectl get pods -n prometheus --no-headers 2>/dev/null | grep -cE 'prometheus-prometheus-kube-prometheus-prometheus-[0-9].*Running' || echo 0)
 if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
@@ -488,28 +517,7 @@ else
   echo "🧹 Removing leftover PVCs in prometheus namespace..."
   kubectl delete pvc -n prometheus --all --ignore-not-found 2>/dev/null || true
 
-  # FIX 4: Pre-pull the chart BEFORE starting the background install.
-  # helm's --timeout flag only governs Kubernetes resource operations, NOT the
-  # initial chart-fetch/untar/render phase. A slow download (large chart ~20 MB,
-  # cold cache, or network blip) will cause helm to appear to hang with zero pods
-  # and zero events — exactly the symptom we observed. Pre-pulling the chart ensures
-  # the background process goes straight to API calls where the timeout applies.
-  echo "📦 Pre-pulling kube-prometheus-stack chart (version 56.6.2)..."
-  mkdir -p /tmp/helm-charts
-  if [ ! -f /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz ]; then
-    helm pull prometheus-community/kube-prometheus-stack \
-      --version 56.6.2 \
-      --destination /tmp/helm-charts/
-  else
-    echo "  Chart already cached at /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz"
-  fi
-  if [ ! -f /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz ]; then
-    echo "❌ Chart pull failed — check connectivity to prometheus-community repo"
-    exit 1
-  fi
-  echo "✅ Chart pre-pulled OK"
-
-  echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
+  echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})...""
 
   dump_prometheus_diagnostics() {
     echo "=== Pods in prometheus namespace ==="
