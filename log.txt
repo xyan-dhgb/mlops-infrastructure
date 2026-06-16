@@ -1,0 +1,317 @@
+ubuntu@ip-10-0-2-8:~$ ./diag.sh
+========================================================
+  PROMETHEUS DEEP DIAGNOSTIC - Tue Jun 16 12:48:18 UTC 2026
+========================================================
+
+=== 1. HELM VERSION ===
+v4.2.1+gd591a19
+
+=== 2. HELM RELEASE STATE ===
+NAME: prometheus
+LAST DEPLOYED: Tue Jun 16 12:44:43 2026
+NAMESPACE: prometheus
+STATUS: failed
+REVISION: 1
+DESCRIPTION: Release "prometheus" failed: context canceled
+TEST SUITE: None
+NOTES:
+kube-prometheus-stack has been installed. Check its status by running:
+  kubectl --namespace prometheus get pods -l "release=prometheus"
+
+Visit https://github.com/prometheus-operator/kube-prometheus for instructions on how to create & configure Alertmanager and Prometheus instances using the Operator.
+--- helm history ---
+REVISION        UPDATED                         STATUS  CHART                           APP VERSION     DESCRIPTION
+1               Tue Jun 16 12:44:43 2026        failed  kube-prometheus-stack-56.6.2    v0.71.2         Release "prometheus" failed: context canceled
+
+=== 3. HELM RELEASE SECRETS (root cause) ===
+All helm-owned secrets in prometheus namespace:
+NAME                               STATUS   CREATED
+sh.helm.release.v1.prometheus.v1   failed   2026-06-16T12:44:44Z
+
+Raw secret details:
+--- secret/sh.helm.release.v1.prometheus.v1 ---
+{"modifiedAt":"1781613902","name":"prometheus","owner":"helm","status":"failed","version":"1"}
+
+=== 4. ALL RESOURCES IN PROMETHEUS NS ===
+NAME                                         READY   STATUS    RESTARTS   AGE   IP           NODE                                             NOMINATED NODE   READINESS GATES
+pod/cicd-metrics-exporter-795676f7db-fq5c5   2/2     Running   0          21h   10.0.10.27   ip-10-0-10-205.ap-southeast-1.compute.internal   <none>           <none>
+
+NAME                            TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE   SELECTOR
+service/cicd-metrics-exporter   ClusterIP   172.20.214.108   <none>        8080/TCP   22h   app.kubernetes.io/name=cicd-metrics-exporter
+
+NAME                                    READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS         IMAGES                                                                                 SELECTOR
+deployment.apps/cicd-metrics-exporter   1/1     1            1           22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter
+
+NAME                                               DESIRED   CURRENT   READY   AGE   CONTAINERS         IMAGES                                                                                 SELECTOR
+replicaset.apps/cicd-metrics-exporter-59ffb7b9bb   0         0         0       22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=59ffb7b9bb
+replicaset.apps/cicd-metrics-exporter-69545bb8c8   0         0         0       22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=69545bb8c8
+replicaset.apps/cicd-metrics-exporter-6cb76cd567   0         0         0       22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=6cb76cd567
+replicaset.apps/cicd-metrics-exporter-7774cb7f87   0         0         0       22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=7774cb7f87
+replicaset.apps/cicd-metrics-exporter-795676f7db   1         1         1       21h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=795676f7db
+
+=== 5. EVENTS (last 30) ===
+
+=== 6. WEBHOOKS ===
+--- Validating ---
+NAME                              WEBHOOKS   AGE
+vpc-resource-validating-webhook   2          28h
+--- Mutating ---
+NAME                            WEBHOOKS   AGE
+pod-identity-webhook            1          28h
+vpc-resource-mutating-webhook   1          28h
+--- Webhook connectivity test (5s timeout) ---
+configmap/webhook-test-diag created (server dry run)
+
+=== 7. CRDs ===
+alertmanagerconfigs.monitoring.coreos.com       2026-06-15T08:38:09Z
+alertmanagers.monitoring.coreos.com             2026-06-15T08:38:10Z
+podmonitors.monitoring.coreos.com               2026-06-15T08:38:10Z
+probes.monitoring.coreos.com                    2026-06-15T08:38:11Z
+prometheusagents.monitoring.coreos.com          2026-06-15T08:38:11Z
+prometheuses.monitoring.coreos.com              2026-06-15T08:38:12Z
+prometheusrules.monitoring.coreos.com           2026-06-15T08:38:13Z
+scrapeconfigs.monitoring.coreos.com             2026-06-15T08:38:13Z
+servicemonitors.monitoring.coreos.com           2026-06-15T08:38:13Z
+thanosrulers.monitoring.coreos.com              2026-06-15T08:38:14Z
+
+=== 8. NODES CAPACITY ===
+(metrics-server not available)
+--- Node conditions ---
+--- node/ip-10-0-10-205.ap-southeast-1.compute.internal ---
+MemoryPressure=False DiskPressure=False PIDPressure=False Ready=True
+cpu=1930m mem=7274924Ki pods=29
+--- node/ip-10-0-20-225.ap-southeast-1.compute.internal ---
+MemoryPressure=False DiskPressure=False PIDPressure=False Ready=True
+cpu=7910m mem=14387096Ki pods=110
+--- node/ip-10-0-20-90.ap-southeast-1.compute.internal ---
+MemoryPressure=False DiskPressure=False PIDPressure=False Ready=True
+cpu=3920m mem=15474596Ki pods=29
+
+=== 9. PENDING PODS (all namespaces) ===
+
+=== 10. HELM DRY-RUN TEST ===
+Chart exists: YES
+Values exists: YES
+--- Running helm template (render only, no install) ---
+        runAsNonRoot: true
+        runAsUser: 2000
+        seccompProfile:
+          type: RuntimeDefault
+
+helm template exit code: 0
+
+=== 11. VALUES FILE CHECK ===
+File size: 1569 bytes
+Unresolved placeholders:
+(none - OK)
+--- First 20 lines ---
+# This is for Prometheus K8s namespace
+
+# Disable Grafana because it will be installed in a separate namespace
+grafana:
+  enabled: false
+
+# Prometheus configuration
+# The Prometheus and Alertmanager configuration utilizes the Node's ephemeral storage (Node's disk/RAM) instead of requiring AWS to allocate expensive EBS (Persistent Volume) hard drives.
+prometheus:
+  prometheusSpec:
+    # Ephemeral storage - no PVC/EBS
+    storageSpec: {}
+    # Only store metrics data for 1 day
+    retention: 1d
+
+# Alertmanager configuration
+# NOTE: alertmanager.config is intentionally omitted here.
+# The full config (including SNS/IRSA secrets) is rendered by phase2-install-addons.sh
+# and injected directly as a Kubernetes Secret named "alertmanager-sns-config".
+# This prevents ArgoCD from reading __placeholders__ from Git and overwriting the secret.
+
+=== 12. DISK SPACE ON BASTION ===
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/root       7.6G  2.8G  4.8G  37% /
+
+=== 13. HELM ENV ===
+HELM_BIN="helm"
+HELM_BURST_LIMIT="100"
+HELM_CACHE_HOME="/home/ubuntu/.cache/helm"
+HELM_CONFIG_HOME="/home/ubuntu/.config/helm"
+HELM_CONTENT_CACHE="/home/ubuntu/.cache/helm/content"
+HELM_DATA_HOME="/home/ubuntu/.local/share/helm"
+HELM_DEBUG="false"
+HELM_KUBEAPISERVER=""
+HELM_KUBEASGROUPS=""
+HELM_KUBEASUSER=""
+HELM_KUBECAFILE=""
+HELM_KUBECONTEXT=""
+HELM_KUBEINSECURE_SKIP_TLS_VERIFY="false"
+HELM_KUBETLS_SERVER_NAME=""
+HELM_KUBETOKEN=""
+HELM_MAX_HISTORY="10"
+HELM_NAMESPACE="default"
+HELM_PLUGINS="/home/ubuntu/.local/share/helm/plugins"
+HELM_QPS="0.00"
+HELM_REGISTRY_CONFIG="/home/ubuntu/.config/helm/registry/config.json"
+HELM_REPOSITORY_CACHE="/home/ubuntu/.cache/helm/repository"
+HELM_REPOSITORY_CONFIG="/home/ubuntu/.config/helm/repositories.yaml"
+
+========================================================
+  DONE - Tue Jun 16 12:48:42 UTC 2026
+========================================================ubuntu@ip-10-0-2-8:~$ ./diag.sh
+========================================================
+  PROMETHEUS DEEP DIAGNOSTIC - Tue Jun 16 12:48:18 UTC 2026
+========================================================
+
+=== 1. HELM VERSION ===
+v4.2.1+gd591a19
+
+=== 2. HELM RELEASE STATE ===
+NAME: prometheus
+LAST DEPLOYED: Tue Jun 16 12:44:43 2026
+NAMESPACE: prometheus
+STATUS: failed
+REVISION: 1
+DESCRIPTION: Release "prometheus" failed: context canceled
+TEST SUITE: None
+NOTES:
+kube-prometheus-stack has been installed. Check its status by running:
+  kubectl --namespace prometheus get pods -l "release=prometheus"
+
+Visit https://github.com/prometheus-operator/kube-prometheus for instructions on how to create & configure Alertmanager and Prometheus instances using the Operator.
+--- helm history ---
+REVISION        UPDATED                         STATUS  CHART                           APP VERSION     DESCRIPTION
+1               Tue Jun 16 12:44:43 2026        failed  kube-prometheus-stack-56.6.2    v0.71.2         Release "prometheus" failed: context canceled
+
+=== 3. HELM RELEASE SECRETS (root cause) ===
+All helm-owned secrets in prometheus namespace:
+NAME                               STATUS   CREATED
+sh.helm.release.v1.prometheus.v1   failed   2026-06-16T12:44:44Z
+
+Raw secret details:
+--- secret/sh.helm.release.v1.prometheus.v1 ---
+{"modifiedAt":"1781613902","name":"prometheus","owner":"helm","status":"failed","version":"1"}
+
+=== 4. ALL RESOURCES IN PROMETHEUS NS ===
+NAME                                         READY   STATUS    RESTARTS   AGE   IP           NODE                                             NOMINATED NODE   READINESS GATES
+pod/cicd-metrics-exporter-795676f7db-fq5c5   2/2     Running   0          21h   10.0.10.27   ip-10-0-10-205.ap-southeast-1.compute.internal   <none>           <none>
+
+NAME                            TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE   SELECTOR
+service/cicd-metrics-exporter   ClusterIP   172.20.214.108   <none>        8080/TCP   22h   app.kubernetes.io/name=cicd-metrics-exporter
+
+NAME                                    READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS         IMAGES                                                                                 SELECTOR
+deployment.apps/cicd-metrics-exporter   1/1     1            1           22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter
+
+NAME                                               DESIRED   CURRENT   READY   AGE   CONTAINERS         IMAGES                                                                                 SELECTOR
+replicaset.apps/cicd-metrics-exporter-59ffb7b9bb   0         0         0       22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=59ffb7b9bb
+replicaset.apps/cicd-metrics-exporter-69545bb8c8   0         0         0       22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=69545bb8c8
+replicaset.apps/cicd-metrics-exporter-6cb76cd567   0         0         0       22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=6cb76cd567
+replicaset.apps/cicd-metrics-exporter-7774cb7f87   0         0         0       22h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=7774cb7f87
+replicaset.apps/cicd-metrics-exporter-795676f7db   1         1         1       21h   exporter,s3-sync   public.ecr.aws/docker/library/python:3.11-slim,public.ecr.aws/aws-cli/aws-cli:latest   app.kubernetes.io/name=cicd-metrics-exporter,pod-template-hash=795676f7db
+
+=== 5. EVENTS (last 30) ===
+
+=== 6. WEBHOOKS ===
+--- Validating ---
+NAME                              WEBHOOKS   AGE
+vpc-resource-validating-webhook   2          28h
+--- Mutating ---
+NAME                            WEBHOOKS   AGE
+pod-identity-webhook            1          28h
+vpc-resource-mutating-webhook   1          28h
+--- Webhook connectivity test (5s timeout) ---
+configmap/webhook-test-diag created (server dry run)
+
+=== 7. CRDs ===
+alertmanagerconfigs.monitoring.coreos.com       2026-06-15T08:38:09Z
+alertmanagers.monitoring.coreos.com             2026-06-15T08:38:10Z
+podmonitors.monitoring.coreos.com               2026-06-15T08:38:10Z
+probes.monitoring.coreos.com                    2026-06-15T08:38:11Z
+prometheusagents.monitoring.coreos.com          2026-06-15T08:38:11Z
+prometheuses.monitoring.coreos.com              2026-06-15T08:38:12Z
+prometheusrules.monitoring.coreos.com           2026-06-15T08:38:13Z
+scrapeconfigs.monitoring.coreos.com             2026-06-15T08:38:13Z
+servicemonitors.monitoring.coreos.com           2026-06-15T08:38:13Z
+thanosrulers.monitoring.coreos.com              2026-06-15T08:38:14Z
+
+=== 8. NODES CAPACITY ===
+(metrics-server not available)
+--- Node conditions ---
+--- node/ip-10-0-10-205.ap-southeast-1.compute.internal ---
+MemoryPressure=False DiskPressure=False PIDPressure=False Ready=True
+cpu=1930m mem=7274924Ki pods=29
+--- node/ip-10-0-20-225.ap-southeast-1.compute.internal ---
+MemoryPressure=False DiskPressure=False PIDPressure=False Ready=True
+cpu=7910m mem=14387096Ki pods=110
+--- node/ip-10-0-20-90.ap-southeast-1.compute.internal ---
+MemoryPressure=False DiskPressure=False PIDPressure=False Ready=True
+cpu=3920m mem=15474596Ki pods=29
+
+=== 9. PENDING PODS (all namespaces) ===
+
+=== 10. HELM DRY-RUN TEST ===
+Chart exists: YES
+Values exists: YES
+--- Running helm template (render only, no install) ---
+        runAsNonRoot: true
+        runAsUser: 2000
+        seccompProfile:
+          type: RuntimeDefault
+
+helm template exit code: 0
+
+=== 11. VALUES FILE CHECK ===
+File size: 1569 bytes
+Unresolved placeholders:
+(none - OK)
+--- First 20 lines ---
+# This is for Prometheus K8s namespace
+
+# Disable Grafana because it will be installed in a separate namespace
+grafana:
+  enabled: false
+
+# Prometheus configuration
+# The Prometheus and Alertmanager configuration utilizes the Node's ephemeral storage (Node's disk/RAM) instead of requiring AWS to allocate expensive EBS (Persistent Volume) hard drives.
+prometheus:
+  prometheusSpec:
+    # Ephemeral storage - no PVC/EBS
+    storageSpec: {}
+    # Only store metrics data for 1 day
+    retention: 1d
+
+# Alertmanager configuration
+# NOTE: alertmanager.config is intentionally omitted here.
+# The full config (including SNS/IRSA secrets) is rendered by phase2-install-addons.sh
+# and injected directly as a Kubernetes Secret named "alertmanager-sns-config".
+# This prevents ArgoCD from reading __placeholders__ from Git and overwriting the secret.
+
+=== 12. DISK SPACE ON BASTION ===
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/root       7.6G  2.8G  4.8G  37% /
+
+=== 13. HELM ENV ===
+HELM_BIN="helm"
+HELM_BURST_LIMIT="100"
+HELM_CACHE_HOME="/home/ubuntu/.cache/helm"
+HELM_CONFIG_HOME="/home/ubuntu/.config/helm"
+HELM_CONTENT_CACHE="/home/ubuntu/.cache/helm/content"
+HELM_DATA_HOME="/home/ubuntu/.local/share/helm"
+HELM_DEBUG="false"
+HELM_KUBEAPISERVER=""
+HELM_KUBEASGROUPS=""
+HELM_KUBEASUSER=""
+HELM_KUBECAFILE=""
+HELM_KUBECONTEXT=""
+HELM_KUBEINSECURE_SKIP_TLS_VERIFY="false"
+HELM_KUBETLS_SERVER_NAME=""
+HELM_KUBETOKEN=""
+HELM_MAX_HISTORY="10"
+HELM_NAMESPACE="default"
+HELM_PLUGINS="/home/ubuntu/.local/share/helm/plugins"
+HELM_QPS="0.00"
+HELM_REGISTRY_CONFIG="/home/ubuntu/.config/helm/registry/config.json"
+HELM_REPOSITORY_CACHE="/home/ubuntu/.cache/helm/repository"
+HELM_REPOSITORY_CONFIG="/home/ubuntu/.config/helm/repositories.yaml"
+
+========================================================
+  DONE - Tue Jun 16 12:48:42 UTC 2026
+========================================================
