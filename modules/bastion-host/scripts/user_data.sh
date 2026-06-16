@@ -43,12 +43,13 @@ rm -f /tmp/kubectl /tmp/kubectl.sha256
 kubectl version --client
 
 # 5. Install Helm
+# IMPORTANT: Pin to Helm v3.x — all charts (kube-prometheus-stack 56.6.2,
+# argo-cd 7.5.2, etc.) are tested with Helm 3. Helm v4 has breaking changes
+# (removed CLI flags, server-side apply defaults) that cause installs to hang.
 echo "--- Installing Helm ---"
 
-HELM_VERSION=$(curl -fsSL --http1.1 https://api.github.com/repos/helm/helm/releases/latest \
-  | jq -r '.tag_name')
-
-echo "Installing Helm $${HELM_VERSION}..."
+HELM_VERSION="v3.17.3"
+echo "Installing Helm $${HELM_VERSION} (pinned)..."
 
 curl -fsSL --http1.1 \
   "https://get.helm.sh/helm-$${HELM_VERSION}-linux-amd64.tar.gz" \
@@ -61,21 +62,18 @@ if [ ! -s /tmp/helm.tar.gz ]; then
 fi
 
 tar -zxf /tmp/helm.tar.gz -C /tmp
-mv /tmp/linux-amd64/helm /usr/local/bin/helm
+install -o root -g root -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
 rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
 
 helm version
 
 # 6. Install ArgoCD CLI
+# Pin to v2.11.3 to match the version used in phase2-install-addons.sh
 echo "--- Installing ArgoCD CLI ---"
 
-# Get latest ArgoCD version
-ARGOCD_VERSION=$(curl -fsSL --http1.1 https://api.github.com/repos/argoproj/argo-cd/releases/latest \
-  | jq -r '.tag_name')
+ARGOCD_VERSION="v2.11.3"
+echo "Installing ArgoCD CLI $${ARGOCD_VERSION} (pinned)..."
 
-echo "Installing ArgoCD CLI $${ARGOCD_VERSION}..."
-
-# Download ArgoCD CLI
 curl -fsSL \
   "https://github.com/argoproj/argo-cd/releases/download/$${ARGOCD_VERSION}/argocd-linux-amd64" \
   -o /tmp/argocd
@@ -86,22 +84,21 @@ if [ ! -s /tmp/argocd ]; then
   exit 1
 fi
 
-# Make executable and move to /usr/local/bin
 install -o root -g root -m 0755 /tmp/argocd /usr/local/bin/argocd
 rm -f /tmp/argocd
 
-# Verify installation
 argocd version --client
 
-echo "--- Waiting for EKS cluster 'mlops-infr-dev-eks' to become ACTIVE ---"
+echo "--- Waiting for EKS cluster '${cluster_name}' to become ACTIVE ---"
 aws eks wait cluster-active \
-  --region ap-southeast-1 \
-  --name mlops-infr-dev-eks
+  --region ${aws_region} \
+  --name ${cluster_name}
 
-aws eks update-kubeconfig --region ap-southeast-1 --name mlops-infr-dev-eks
+aws eks update-kubeconfig --region ${aws_region} --name ${cluster_name}
 
-# Install kubectl top command to print the resource of each nodes
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+# Install metrics-server for kubectl top (pinned version for stability)
+METRICS_SERVER_VERSION="v0.7.2"
+kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/$${METRICS_SERVER_VERSION}/components.yaml"
 
 kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
 {
@@ -128,15 +125,22 @@ kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
 }
 ]'
 
+kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s
+
 kubectl -n kube-system get pods -l k8s-app=metrics-server
 kubectl get apiservices -l k8s-app=metrics-server
 
-POD_NAME=$(kubectl -n kube-system get pods -l k8s-app=metrics-server -o jsonpath='{.items[0].metadata.name}')
-kubectl -n kube-system logs $POD_NAME
+# Diagnostic only — don't fail the script if pod logs aren't available yet
+POD_NAME=$(kubectl -n kube-system get pods -l k8s-app=metrics-server \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || true
+if [ -n "$${POD_NAME}" ]; then
+  kubectl -n kube-system logs "$${POD_NAME}" --tail=20 || true
+fi
 
 echo "Finishing installing kubectl top command"
 
 echo "=== Basics tools install finished at $(date) ==="
 
-# Check if user_data has completed
-cloud-init status --wait
+# NOTE: Do NOT call 'cloud-init status --wait' here.
+# This script IS part of cloud-init — waiting for cloud-init to finish
+# from inside cloud-init causes a deadlock.
