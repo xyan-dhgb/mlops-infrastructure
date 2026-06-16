@@ -8,7 +8,7 @@ set -euo pipefail
 source "$(dirname "$0")/ssm-run.sh"
 
 # Shortcut: Export AWS creds into remote shell
-AWS_ENV_EXPORT="export HOME=/root AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' \
+AWS_ENV_EXPORT="export HOME=/home/ubuntu AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' \
 AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
 AWS_DEFAULT_REGION='${AWS_REGION}'"
 
