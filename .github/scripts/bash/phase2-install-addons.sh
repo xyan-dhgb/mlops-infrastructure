@@ -517,7 +517,7 @@ else
   echo "🧹 Removing leftover PVCs in prometheus namespace..."
   kubectl delete pvc -n prometheus --all --ignore-not-found 2>/dev/null || true
 
-  echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})...""
+  echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
 
   dump_prometheus_diagnostics() {
     echo "=== Pods in prometheus namespace ==="
