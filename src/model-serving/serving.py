@@ -42,20 +42,26 @@ from kserve import Model, ModelServer
 
 
 # ── Compatibility shims ──────────────────────────────────────────────────────
-# Shim 1: Model .h5 được train bằng TF cũ hơn có InputLayer config chứa
-# 'batch_shape' và 'optional' — hai kwargs này đã bị xóa khỏi tf_keras 2.15.
+# Keras 3.x to Keras 2.x (tf_keras) loading fixes
+
+# Shim 1: Handle InputLayer config changes
 class _CompatInputLayer(keras.layers.InputLayer):
     @classmethod
     def from_config(cls, config):
-        config.pop("batch_shape", None)
+        # Keras 3 saves 'batch_shape' or 'shape' sometimes as string "(None, 224, 224, 3)"
+        shape = config.pop("batch_shape", None) or config.pop("shape", None)
+        if isinstance(shape, str) and shape.startswith("(") and shape.endswith(")"):
+            try:
+                shape = eval(shape, {"None": None})
+            except Exception:
+                pass
+        if shape is not None:
+            config["batch_input_shape"] = shape
+            
         config.pop("optional", None)
         return super().from_config(config)
 
-# Shim 2: Model .h5 được save bằng Keras 3.x (standalone `keras` package) sẽ
-# serialize dtype của mỗi layer thành DTypePolicy({'name': 'float32', ...}).
-# tf_keras (Keras 2.x) không khai báo class này → TypeError khi deserialize.
-# Stub tối giản: chỉ cần from_config() trả về đúng tên policy để tf_keras
-# resolve dtype nội bộ.
+# Shim 2: Stub for DTypePolicy
 class _DTypePolicy:
     """Minimal stub to deserialize Keras 3.x DTypePolicy saved in .h5 files."""
     def __init__(self, name: str = "float32", **_):
@@ -70,19 +76,49 @@ class _DTypePolicy:
     def get_config(self):
         return {"name": self.name}
 
-# Shim 3: Model .h5 được save bằng Keras 3.x tự động thêm 'quantization_config'
-# vào config của mọi layer (Dense, Conv2D...). tf_keras (Keras 2.x) không hiểu
-# kwarg này → raise TypeError("Keyword argument not understood: quantization_config").
-# Monkey-patch Layer.from_config để strip nó đi cho TOÀN BỘ các layer.
+# Shim 3: Strip Keras 3 specific kwargs and fix stringified shapes in all layers
 _original_layer_from_config = keras.layers.Layer.from_config
 
 @classmethod
 def _patched_layer_from_config(cls, config):
     config.pop("quantization_config", None)
-    # Gọi lại original classmethod (truy cập .__func__ vì Python classmethod binding)
+    
+    # Fix any stringified tuples (e.g., target_shape="(128, 128)")
+    for k, v in list(config.items()):
+        if isinstance(v, str) and v.startswith("(") and v.endswith(")"):
+            try:
+                config[k] = eval(v, {"None": None})
+            except Exception:
+                pass
+                
     return _original_layer_from_config.__func__(cls, config)
 
 keras.layers.Layer.from_config = _patched_layer_from_config
+
+# Shim 4: Fix Keras 3 inbound_nodes simplified format
+_original_model_from_config = keras.models.Model.from_config
+
+@classmethod
+def _patched_model_from_config(cls, config, custom_objects=None):
+    if "layers" in config:
+        for layer_config in config["layers"]:
+            inbound_nodes = layer_config.get("inbound_nodes", [])
+            new_inbound = []
+            for node in inbound_nodes:
+                if isinstance(node, str):
+                    new_inbound.append([[node, 0, 0, {}]])
+                elif isinstance(node, list):
+                    if len(node) > 0 and isinstance(node[0], str):
+                        new_inbound.append([node])
+                    else:
+                        new_inbound.append(node)
+                else:
+                    new_inbound.append(node)
+            if new_inbound:
+                layer_config["inbound_nodes"] = new_inbound
+    return _original_model_from_config.__func__(cls, config, custom_objects)
+
+keras.models.Model.from_config = _patched_model_from_config
 # ───────────────────────────────────────────────────────────────────────────────
 
 logger = logging.getLogger("kserve-serving")
