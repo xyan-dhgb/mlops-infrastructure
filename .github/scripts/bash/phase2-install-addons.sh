@@ -233,7 +233,6 @@ ssm_run 1500 "⚙️ Install ArgoCD" \
        --namespace argocd \
        --version '7.5.2' \
        --values /home/ubuntu/helm-workspace/values/argocd/values.yaml \
-       --force-conflicts \
        --wait --timeout 10m
    fi" \
   "kubectl rollout status deployment/argocd-server -n argocd --timeout=300s" \
@@ -564,7 +563,6 @@ else
     --namespace prometheus \
     --values /home/ubuntu/helm-workspace/values/monitoring/prometheus/values.yaml \
     --skip-crds \
-    --force-conflicts \
     --wait --timeout 10m &
   HELM_PID=$!
 
@@ -761,7 +759,6 @@ ssm_run 300 "⚙️ Cloudflare: Helm Install" \
   "helm upgrade --install cloudflared cloudflare/cloudflare-tunnel \
     --namespace cloudflare \
     --values /home/ubuntu/helm-workspace/cloudflare-rendered.yaml \
-    --force-conflicts \
     --wait --timeout 5m" \
   "kubectl wait pod -n cloudflare -l app.kubernetes.io/name=cloudflare-tunnel --for=condition=Ready --timeout=120s || kubectl get pods -n cloudflare" \
   "kubectl logs -n cloudflare -l app.kubernetes.io/name=cloudflare-tunnel --tail=5 2>/dev/null || true" \
