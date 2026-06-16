@@ -259,10 +259,34 @@ ssm_run 600 "Install Argo Workflows" \
    if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
      echo \"✅ Argo Workflows 1.0.7 already deployed — skipping\"
    else
-     if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
-       helm rollback argo-workflows 0 -n argo-workflows 2>/dev/null || helm uninstall argo-workflows -n argo-workflows --no-hooks 2>/dev/null || true
-       sleep 3
-     fi
+      if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
+        echo \"⚠️  argo-workflows release stuck — attempting rollback...\"
+        if ! helm rollback argo-workflows 0 -n argo-workflows 2>/dev/null; then
+          echo \"⚠️  rollback failed — uninstalling...\"
+          helm uninstall argo-workflows -n argo-workflows --no-hooks 2>/dev/null || true
+          sleep 3
+          # Re-apply Argo Workflows CRDs that helm uninstall may have removed
+          echo \"📦 Re-applying Argo Workflows CRDs...\"
+          kubectl apply --server-side --force-conflicts -f \
+            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_clusterworkflowtemplates.yaml 2>/dev/null || true
+          kubectl apply --server-side --force-conflicts -f \
+            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_cronworkflows.yaml 2>/dev/null || true
+          kubectl apply --server-side --force-conflicts -f \
+            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workfloweventbindings.yaml 2>/dev/null || true
+          kubectl apply --server-side --force-conflicts -f \
+            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workflows.yaml 2>/dev/null || true
+          kubectl apply --server-side --force-conflicts -f \
+            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workflowtaskresults.yaml 2>/dev/null || true
+          kubectl apply --server-side --force-conflicts -f \
+            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workflowtasksets.yaml 2>/dev/null || true
+          kubectl apply --server-side --force-conflicts -f \
+            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workflowtemplates.yaml 2>/dev/null || true
+          echo \"✅ Argo CRDs re-applied\"
+        else
+          echo \"✅ rollback succeeded\"
+          sleep 3
+        fi
+      fi
      if ! helm upgrade --install argo-workflows argo/argo-workflows \
        --namespace argo-workflows \
        --version '1.0.7' \
@@ -418,19 +442,65 @@ PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus 
 if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
   echo "✅ Prometheus already deployed and healthy (pods=${PROM_PODS}) — skipping helm upgrade"
 else
-  # Clean up stuck pending-* release
+  # Clean up stuck pending-* release — prefer rollback to preserve CRDs
   if echo "${PROM_STATUS}" | grep -q '^pending-'; then
-    echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — rolling back..."
-    helm rollback prometheus 0 -n prometheus 2>/dev/null || helm uninstall prometheus -n prometheus --no-hooks 2>/dev/null || true
-    sleep 3
+    echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — attempting rollback..."
+    if ! helm rollback prometheus 0 -n prometheus 2>/dev/null; then
+      echo "⚠️  rollback failed — uninstalling (keeping CRDs)..."
+      helm uninstall prometheus -n prometheus --no-hooks 2>/dev/null || true
+      sleep 3
+      # Ensure Prometheus Operator CRDs exist after uninstall — helm uninstall removes them
+      echo "📦 Re-applying kube-prometheus-stack CRDs..."
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-alertmanagerconfigs.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-alertmanagers.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-podmonitors.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-probes.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-prometheusagents.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-prometheuses.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-prometheusrules.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-scrapeconfigs.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-servicemonitors.yaml 2>/dev/null || true
+      kubectl apply --server-side --force-conflicts -f \
+        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-thanosrulers.yaml 2>/dev/null || true
+      echo "✅ CRDs re-applied"
+    else
+      echo "✅ rollback succeeded"
+      sleep 3
+    fi
   fi
+
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
-  helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+  if ! helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
     --namespace prometheus \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --force-conflicts \
-    --wait --timeout 10m
+    --wait --timeout 5m; then
+    echo "❌ Prometheus helm install failed! Diagnostics:"
+    echo "=== Pods in prometheus namespace ==="
+    kubectl get pods -n prometheus -o wide || true
+    echo "=== Recent events ==="
+    kubectl get events -n prometheus --sort-by='.metadata.creationTimestamp' | tail -n 30 || true
+    echo "=== CRDs check ==="
+    kubectl get crd | grep -E 'monitoring.coreos.com|prometheus' || echo "NO PROMETHEUS CRDs FOUND"
+    echo "=== Not-ready pod descriptions/logs ==="
+    for p in $(kubectl get pods -n prometheus --no-headers 2>/dev/null | grep -v Running | awk '{print $1}'); do
+      echo "--- describe ${p} ---"
+      kubectl describe pod "${p}" -n prometheus || true
+      echo "--- logs ${p} ---"
+      kubectl logs "${p}" -n prometheus --all-containers --tail=30 || true
+    done
+    exit 1
+  fi
 fi
 REMOTE_CMD
 )
