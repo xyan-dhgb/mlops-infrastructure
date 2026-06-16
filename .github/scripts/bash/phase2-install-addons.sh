@@ -7,7 +7,7 @@ set -euo pipefail
 source "$(dirname "$0")/ssm-run.sh"
 
 # Shortcut: export AWS credentials into the remote shell for reuse.
-AWS_ENV_EXPORT="export HOME=/root AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' \
+AWS_ENV_EXPORT="export HOME=/home/ubuntu AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' \
 AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
 AWS_DEFAULT_REGION='${AWS_REGION}'"
 
@@ -164,40 +164,44 @@ CICD_METRICS_B64=$(tar -C "${CICD_METRICS_RENDER_DIR}" -czf - . | base64 -w 0)
 
 
 # Upload all Helm values to the bastion.
+# Timeout set to 120s: this step decodes multiple base64 blobs, extracts two
+# tgz archives (grafana dashboards + cicd-metrics), and runs placeholder
+# validation — 30s was too tight and caused mid-upload kills that left
+# /home/ubuntu/helm-workspace/values/ partially written, making all subsequent install steps fail.
 ssm_run 120 "🔗 Upload Helm values" \
-  "mkdir -p /tmp/helm-values/argocd /tmp/helm-values/argo-workflows /tmp/helm-values/mlflow /tmp/helm-values/monitoring/prometheus/rules /tmp/helm-values/monitoring/grafana /tmp/helm-values/monitoring/cicd-metrics /tmp/helm-values/cloudflare /tmp/helm-values/eks /tmp/helm-values/kserve" \
-  "echo '${ARGOCD_B64}' | base64 -d > /tmp/helm-values/argocd/values.yaml" \
-  "echo '${ARGO_WORKFLOWS_B64}' | base64 -d > /tmp/helm-values/argo-workflows/values.yaml" \
-  "echo '${MLFLOW_B64}' | base64 -d > /tmp/helm-values/mlflow/values.yaml" \
-  "echo '${PROM_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/values.yaml" \
-  "echo '${PROM_RULES_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml" \
-  "echo '${GRAFANA_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/values.yaml" \
-  "echo '${GRAFANA_DASHBOARDS_B64}' | base64 -d > /tmp/helm-values/monitoring/grafana/dashboards.tgz" \
-  "tar -xzf /tmp/helm-values/monitoring/grafana/dashboards.tgz -C /tmp/helm-values/monitoring/grafana" \
-  "echo '${CICD_METRICS_B64}' | base64 -d > /tmp/helm-values/monitoring/cicd-metrics/cicd-metrics.tgz" \
-  "tar -xzf /tmp/helm-values/monitoring/cicd-metrics/cicd-metrics.tgz -C /tmp/helm-values/monitoring/cicd-metrics" \
-  "echo '${NVIDIA_PLUGIN_VALUES_B64}' | base64 -d > /tmp/helm-values/eks/nvidia-device-plugin-values.yaml" \
-  "echo '${CERT_MANAGER_B64}' | base64 -d > /tmp/helm-values/kserve/cert-manager-values.yaml" \
-  "echo '${KSERVE_B64}' | base64 -d > /tmp/helm-values/kserve/kserve-values.yaml" \
+  "mkdir -p /home/ubuntu/helm-workspace/values/argocd /home/ubuntu/helm-workspace/values/argo-workflows /home/ubuntu/helm-workspace/values/mlflow /home/ubuntu/helm-workspace/values/monitoring/prometheus/rules /home/ubuntu/helm-workspace/values/monitoring/grafana /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics /home/ubuntu/helm-workspace/values/cloudflare /home/ubuntu/helm-workspace/values/eks /home/ubuntu/helm-workspace/values/kserve" \
+  "echo '${ARGOCD_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/argocd/values.yaml" \
+  "echo '${ARGO_WORKFLOWS_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/argo-workflows/values.yaml" \
+  "echo '${MLFLOW_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/mlflow/values.yaml" \
+  "echo '${PROM_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/monitoring/prometheus/values.yaml" \
+  "echo '${PROM_RULES_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/monitoring/prometheus/rules/eks-alerts.yaml" \
+  "echo '${GRAFANA_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/monitoring/grafana/values.yaml" \
+  "echo '${GRAFANA_DASHBOARDS_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/monitoring/grafana/dashboards.tgz" \
+  "tar -xzf /home/ubuntu/helm-workspace/values/monitoring/grafana/dashboards.tgz -C /home/ubuntu/helm-workspace/values/monitoring/grafana" \
+  "echo '${CICD_METRICS_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics/cicd-metrics.tgz" \
+  "tar -xzf /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics/cicd-metrics.tgz -C /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics" \
+  "echo '${NVIDIA_PLUGIN_VALUES_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/eks/nvidia-device-plugin-values.yaml" \
+  "echo '${CERT_MANAGER_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/kserve/cert-manager-values.yaml" \
+  "echo '${KSERVE_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/kserve/kserve-values.yaml" \
   "# Decode rendered Alertmanager config (SNS placeholders already substituted on runner)
-   echo '${ALERTMANAGER_CONFIG_B64}' | base64 -d > /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml" \
-  "if grep -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/values.yaml; then
+   echo '${ALERTMANAGER_CONFIG_B64}' | base64 -d > /home/ubuntu/helm-workspace/values/monitoring/prometheus/alertmanager-config.yaml" \
+  "if grep -qE '__[A-Z_]+__' /home/ubuntu/helm-workspace/values/monitoring/prometheus/values.yaml; then
      echo '❌ ERROR: Uploaded Prometheus values still contain unresolved placeholders'
-     grep -E '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/values.yaml
+     grep -E '__[A-Z_]+__' /home/ubuntu/helm-workspace/values/monitoring/prometheus/values.yaml
      exit 1
    fi" \
-  "if grep -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml; then
+  "if grep -qE '__[A-Z_]+__' /home/ubuntu/helm-workspace/values/monitoring/prometheus/alertmanager-config.yaml; then
      echo '❌ ERROR: Uploaded Alertmanager config still contains unresolved placeholders'
-     grep -E '__[A-Z_]+__' /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml
+     grep -E '__[A-Z_]+__' /home/ubuntu/helm-workspace/values/monitoring/prometheus/alertmanager-config.yaml
      exit 1
    fi" \
-  "if grep -R -qE '__[A-Z_]+__' /tmp/helm-values/monitoring/cicd-metrics; then
+  "if grep -R -qE '__[A-Z_]+__' /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics; then
      echo '❌ ERROR: Uploaded CI/CD metrics exporter manifests still contain unresolved placeholders'
-     grep -R -E '__[A-Z_]+__' /tmp/helm-values/monitoring/cicd-metrics
+     grep -R -E '__[A-Z_]+__' /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics
      exit 1
    fi" \
   "echo '--- Rendered Alertmanager SNS config (verify) ---'" \
-  "grep -E 'topic_arn:|region:|api_url:' /tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml" \
+  "grep -E 'topic_arn:|region:|api_url:' /home/ubuntu/helm-workspace/values/monitoring/prometheus/alertmanager-config.yaml" \
   "echo '✅ Helm values uploaded OK'"
 
 
@@ -228,7 +232,7 @@ ssm_run 1500 "⚙️ Install ArgoCD" \
      helm upgrade --install argocd argo/argo-cd \
        --namespace argocd \
        --version '7.5.2' \
-       --values /tmp/helm-values/argocd/values.yaml \
+       --values /home/ubuntu/helm-workspace/values/argocd/values.yaml \
        --force-conflicts \
        --wait --timeout 10m
    fi" \
@@ -285,7 +289,7 @@ ssm_run 900 "Install Argo Workflows" \
      if ! helm upgrade --install argo-workflows argo/argo-workflows \
        --namespace argo-workflows \
        --version '1.0.7' \
-       --values /tmp/helm-values/argo-workflows/values.yaml \
+       --values /home/ubuntu/helm-workspace/values/argo-workflows/values.yaml \
        \${CRD_FLAG} \
        --wait --timeout 8m; then
        echo \"❌ Helm upgrade/install failed! Fetching diagnostics...\"
@@ -321,7 +325,7 @@ ssm_run 120 "⚙️ Install NVIDIA Device Plugin" \
      helm upgrade --install nvidia-device-plugin nvdp/nvidia-device-plugin \
        --namespace kube-system \
        --version '0.17.1' \
-       --values /tmp/helm-values/eks/nvidia-device-plugin-values.yaml \
+       --values /home/ubuntu/helm-workspace/values/eks/nvidia-device-plugin-values.yaml \
        --wait --timeout 5m
    fi" \
   "helm status nvidia-device-plugin -n kube-system" \
@@ -373,15 +377,15 @@ ssm_run 720 "⚙️ Install MLflow" \
    kubectl delete secret mlflow-server-env-secret -n mlflow 2>/dev/null || true
    sleep 3" \
   "# Decode rendered values onto the bastion
-   echo '${MLFLOW_RENDERED_B64}' | base64 -d > /tmp/mlflow-rendered.yaml
+   echo '${MLFLOW_RENDERED_B64}' | base64 -d > /home/ubuntu/helm-workspace/mlflow-rendered.yaml
    echo '--- Rendered values.yaml (verify) ---'
-   cat /tmp/mlflow-rendered.yaml" \
+   cat /home/ubuntu/helm-workspace/mlflow-rendered.yaml" \
   "helm repo add community-charts https://community-charts.github.io/helm-charts 2>/dev/null || true" \
   "helm repo update community-charts" \
   "helm upgrade --install mlflow-server community-charts/mlflow \
     --namespace mlflow \
     --version '0.7.19' \
-    --values /tmp/mlflow-rendered.yaml \
+    --values /home/ubuntu/helm-workspace/mlflow-rendered.yaml \
     --wait --timeout 10m" \
   "# Verify the ConfigMap right after install to catch unresolved placeholders early
    echo '--- Verifying mlflow-server-env-configmap ---'
@@ -414,30 +418,30 @@ echo 'Creating alertmanager-sns-config secret from rendered config...'
 
 kubectl create secret generic alertmanager-sns-config \
   --namespace prometheus \
-  --from-file=alertmanager.yaml=/tmp/helm-values/monitoring/prometheus/alertmanager-config.yaml \
+  --from-file=alertmanager.yaml=/home/ubuntu/helm-workspace/values/monitoring/prometheus/alertmanager-config.yaml \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl get secret alertmanager-sns-config -n prometheus \
-  -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-check.yaml
+  -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /home/ubuntu/helm-workspace/alertmanager-check.yaml
 
-if grep -qE '__[A-Z_]+__' /tmp/alertmanager-check.yaml; then
+if grep -qE '__[A-Z_]+__' /home/ubuntu/helm-workspace/alertmanager-check.yaml; then
   echo 'ERROR: alertmanager-sns-config secret still contains unresolved placeholders'
-  grep -E '__[A-Z_]+__' /tmp/alertmanager-check.yaml
+  grep -E '__[A-Z_]+__' /home/ubuntu/helm-workspace/alertmanager-check.yaml
   exit 1
 fi
 
-grep -E 'topic_arn:|region:|api_url:' /tmp/alertmanager-check.yaml
+grep -E 'topic_arn:|region:|api_url:' /home/ubuntu/helm-workspace/alertmanager-check.yaml
 echo 'alertmanager-sns-config secret verified'
 REMOTE_CMD
 )
 
 PROMETHEUS_HELM_CMD=$(cat <<'REMOTE_CMD'
-# Guard: /tmp is ephemeral on the bastion — if it was cleared between the
-# upload step and this install step, fail immediately with a clear message
-# instead of letting helm hang for 10m against a missing values file.
-PROM_VALUES=/tmp/helm-values/monitoring/prometheus/values.yaml
+# Guard: if helm-workspace was removed between the upload step and this
+# install step, fail immediately with a clear message instead of letting
+# helm hang for 10m against a missing values file.
+PROM_VALUES=/home/ubuntu/helm-workspace/values/monitoring/prometheus/values.yaml
 if [ ! -f "${PROM_VALUES}" ]; then
-  echo "❌ FATAL: ${PROM_VALUES} not found — /tmp was cleared after the upload step."
+  echo "❌ FATAL: ${PROM_VALUES} not found — /home/ubuntu/helm-workspace may have been removed."
   echo "   Re-run the pipeline from the beginning so values are re-uploaded."
   exit 1
 fi
@@ -446,19 +450,18 @@ fi
 # kube-prometheus-stack uses label app.kubernetes.io/name=prometheus for the StatefulSet pods.
 # We also check the prometheus-operator deployment which uses app.kubernetes.io/name=prometheus-operator.
 # Always pre-pull the chart regardless of install/skip decision.
-# /tmp is ephemeral on the bastion — the chart cache may have been cleared
-# since the last run. Pre-pulling here guarantees helm never fetches remotely
-# during the background install process where the --timeout would hide the failure.
+# Pre-pulling here guarantees helm never fetches remotely during the
+# background install process where the --timeout would hide the failure.
 echo "📦 Pre-pulling kube-prometheus-stack chart (version 56.6.2)..."
-mkdir -p /tmp/helm-charts
-if [ ! -f /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz ]; then
+mkdir -p /home/ubuntu/helm-workspace/charts
+if [ ! -f /home/ubuntu/helm-workspace/charts/kube-prometheus-stack-56.6.2.tgz ]; then
   helm pull prometheus-community/kube-prometheus-stack \
     --version 56.6.2 \
-    --destination /tmp/helm-charts/
+    --destination /home/ubuntu/helm-workspace/charts/
 else
-  echo "  Chart already cached at /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz"
+  echo "  Chart already cached at /home/ubuntu/helm-workspace/charts/kube-prometheus-stack-56.6.2.tgz"
 fi
-if [ ! -f /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz ]; then
+if [ ! -f /home/ubuntu/helm-workspace/charts/kube-prometheus-stack-56.6.2.tgz ]; then
   echo "❌ Chart pull failed — check connectivity to prometheus-community repo"
   exit 1
 fi
@@ -517,7 +520,7 @@ else
   echo "🧹 Removing leftover PVCs in prometheus namespace..."
   kubectl delete pvc -n prometheus --all --ignore-not-found 2>/dev/null || true
 
-  echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
+  echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})...""
 
   dump_prometheus_diagnostics() {
     echo "=== Pods in prometheus namespace ==="
@@ -548,9 +551,9 @@ else
   # triggers the `wait` below to return non-zero and run the final diagnostic dump.
   # The old watchdog fired at 11m30s (AFTER helm's 10m timeout), which meant helm
   # could exit before the watchdog ran — the watchdog was effectively a dead letter.
-  helm upgrade --install prometheus /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz \
+  helm upgrade --install prometheus /home/ubuntu/helm-workspace/charts/kube-prometheus-stack-56.6.2.tgz \
     --namespace prometheus \
-    --values /tmp/helm-values/monitoring/prometheus/values.yaml \
+    --values /home/ubuntu/helm-workspace/values/monitoring/prometheus/values.yaml \
     --force-conflicts \
     --wait --timeout 10m &
   HELM_PID=$!
@@ -611,12 +614,12 @@ kubectl rollout status statefulset \
 
 echo '--- Final verify: alertmanager-sns-config secret ---'
 kubectl get secret alertmanager-sns-config -n prometheus \
-  -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/alertmanager-rendered.yaml
-grep -E 'api_url:|topic_arn:|region:|subject:|eks-sns' /tmp/alertmanager-rendered.yaml
+  -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /home/ubuntu/helm-workspace/alertmanager-rendered.yaml
+grep -E 'api_url:|topic_arn:|region:|subject:|eks-sns' /home/ubuntu/helm-workspace/alertmanager-rendered.yaml
 
-if grep -qE '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml; then
+if grep -qE '__[A-Z_]+__' /home/ubuntu/helm-workspace/alertmanager-rendered.yaml; then
   echo 'ERROR: Alertmanager config still contains unresolved placeholders'
-  grep -E '__[A-Z_]+__' /tmp/alertmanager-rendered.yaml
+  grep -E '__[A-Z_]+__' /home/ubuntu/helm-workspace/alertmanager-rendered.yaml
   exit 1
 fi
 
@@ -625,7 +628,7 @@ REMOTE_CMD
 )
 
 PROMETHEUS_RULES_CMD=$(cat <<'REMOTE_CMD'
-kubectl apply -f /tmp/helm-values/monitoring/prometheus/rules/eks-alerts.yaml
+kubectl apply -f /home/ubuntu/helm-workspace/values/monitoring/prometheus/rules/eks-alerts.yaml
 kubectl get prometheusrule eks-alerts -n prometheus
 REMOTE_CMD
 )
@@ -633,13 +636,13 @@ REMOTE_CMD
 CICD_METRICS_CMD=$(cat <<'REMOTE_CMD'
 kubectl create configmap cicd-metrics-exporter-script \
   --namespace prometheus \
-  --from-file=exporter.py=/tmp/helm-values/monitoring/cicd-metrics/exporter.py \
+  --from-file=exporter.py=/home/ubuntu/helm-workspace/values/monitoring/cicd-metrics/exporter.py \
   --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/serviceaccount.yaml
-kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/service.yaml
-kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/servicemonitor.yaml
-kubectl apply -f /tmp/helm-values/monitoring/cicd-metrics/manifests/deployment.yaml
+kubectl apply -f /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics/manifests/serviceaccount.yaml
+kubectl apply -f /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics/manifests/service.yaml
+kubectl apply -f /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics/manifests/servicemonitor.yaml
+kubectl apply -f /home/ubuntu/helm-workspace/values/monitoring/cicd-metrics/manifests/deployment.yaml
 
 kubectl rollout restart deployment/cicd-metrics-exporter -n prometheus 2>/dev/null || true
 kubectl rollout status deployment/cicd-metrics-exporter -n prometheus --timeout=180s
@@ -651,7 +654,7 @@ GRAFANA_DASHBOARDS_CMD=$(cat <<'REMOTE_CMD'
 kubectl create namespace grafana --dry-run=client -o yaml | kubectl apply -f -
 kubectl delete configmap -n grafana -l grafana_dashboard=1 --ignore-not-found
 
-find /tmp/helm-values/monitoring/grafana/dashboards -maxdepth 1 -type f -name '*.json' |
+find /home/ubuntu/helm-workspace/values/monitoring/grafana/dashboards -maxdepth 1 -type f -name '*.json' |
 while read -r dashboard; do
   name=$(basename "${dashboard}" .json)
 
@@ -695,7 +698,7 @@ else
   helm upgrade --install grafana grafana/grafana \
     --namespace grafana \
     --version '7.3.0' \
-    --values /tmp/helm-values/monitoring/grafana/values.yaml \
+    --values /home/ubuntu/helm-workspace/values/monitoring/grafana/values.yaml \
     --set adminPassword='${GRAFANA_ADMIN_PASSWORD}' \
     --wait --timeout 5m
 fi
@@ -721,12 +724,12 @@ ssm_run 2400 "Install Monitoring" \
 ssm_run 60 "⚙️ Cloudflare: Create Secret" \
   "${AWS_ENV_EXPORT}" \
   "kubectl create namespace cloudflare --dry-run=client -o yaml | kubectl apply -f -" \
-  "echo '${CLOUDFLARE_CREDS_B64}' | base64 -d > /tmp/cloudflare-creds.json" \
+  "echo '${CLOUDFLARE_CREDS_B64}' | base64 -d > /home/ubuntu/helm-workspace/cloudflare-creds.json" \
   "kubectl create secret generic cloudflared-cloudflare-tunnel \
     --namespace cloudflare \
-    --from-file=credentials.json=/tmp/cloudflare-creds.json \
+    --from-file=credentials.json=/home/ubuntu/helm-workspace/cloudflare-creds.json \
     --dry-run=client -o yaml | kubectl apply -f -" \
-  "rm -f /tmp/cloudflare-creds.json" \
+  "rm -f /home/ubuntu/helm-workspace/cloudflare-creds.json" \
   "kubectl get secret cloudflared-cloudflare-tunnel -n cloudflare \
     -o jsonpath='{.data.credentials\.json}' | base64 -d | head -c 20" \
   "echo '...'" \
@@ -740,14 +743,14 @@ ssm_run 300 "⚙️ Cloudflare: Helm Install" \
    helm uninstall cloudflared -n cloudflare 2>/dev/null || true
    sleep 5" \
   "# Decode rendered values from the runner
-   echo '${CLOUDFLARE_RENDERED_B64}' | base64 -d > /tmp/cloudflare-rendered.yaml
+   echo '${CLOUDFLARE_RENDERED_B64}' | base64 -d > /home/ubuntu/helm-workspace/cloudflare-rendered.yaml
    echo '--- Rendered cloudflare values.yaml (verify) ---'
-   cat /tmp/cloudflare-rendered.yaml" \
+   cat /home/ubuntu/helm-workspace/cloudflare-rendered.yaml" \
   "helm repo add cloudflare https://cloudflare.github.io/helm-charts 2>/dev/null || true" \
   "helm repo update cloudflare" \
   "helm upgrade --install cloudflared cloudflare/cloudflare-tunnel \
     --namespace cloudflare \
-    --values /tmp/cloudflare-rendered.yaml \
+    --values /home/ubuntu/helm-workspace/cloudflare-rendered.yaml \
     --force-conflicts \
     --wait --timeout 5m" \
   "kubectl wait pod -n cloudflare -l app.kubernetes.io/name=cloudflare-tunnel --for=condition=Ready --timeout=120s || kubectl get pods -n cloudflare" \
@@ -791,7 +794,7 @@ else
   helm upgrade --install cert-manager jetstack/cert-manager \
     --namespace cert-manager \
     --version 'v1.14.5' \
-    --values /tmp/helm-values/kserve/cert-manager-values.yaml \
+    --values /home/ubuntu/helm-workspace/values/kserve/cert-manager-values.yaml \
     --force \
     --wait --timeout 5m
 fi
@@ -841,7 +844,7 @@ helm upgrade --install kserve \
   oci://ghcr.io/kserve/charts/kserve \
   --namespace kserve \
   --version 'v0.13.1' \
-  --values /tmp/helm-values/kserve/kserve-values.yaml \
+  --values /home/ubuntu/helm-workspace/values/kserve/kserve-values.yaml \
   --skip-crds \
   --force-conflicts \
   --timeout 10m || true
@@ -912,7 +915,7 @@ helm upgrade --install kserve \
   oci://ghcr.io/kserve/charts/kserve \
   --namespace kserve \
   --version 'v0.13.1' \
-  --values /tmp/helm-values/kserve/kserve-values.yaml \
+  --values /home/ubuntu/helm-workspace/values/kserve/kserve-values.yaml \
   --force-conflicts \
   --wait --timeout 5m
 kubectl get clusterservingruntimes.serving.kserve.io 2>/dev/null | head -5
