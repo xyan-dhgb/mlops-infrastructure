@@ -260,49 +260,27 @@ ssm_run 900 "Install Argo Workflows" \
    if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
      echo \"✅ Argo Workflows 1.0.7 already deployed — skipping\"
    else
-<<<<<<< HEAD
-      if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
-        echo \"⚠️  argo-workflows release stuck — attempting rollback...\"
-        if ! helm rollback argo-workflows 0 -n argo-workflows 2>/dev/null; then
-          echo \"⚠️  rollback failed — uninstalling...\"
-          helm uninstall argo-workflows -n argo-workflows --no-hooks 2>/dev/null || true
-          sleep 3
-          # Re-apply Argo Workflows CRDs that helm uninstall may have removed
-          echo \"📦 Re-applying Argo Workflows CRDs...\"
-          kubectl apply --server-side --force-conflicts -f \
-            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_clusterworkflowtemplates.yaml 2>/dev/null || true
-          kubectl apply --server-side --force-conflicts -f \
-            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_cronworkflows.yaml 2>/dev/null || true
-          kubectl apply --server-side --force-conflicts -f \
-            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workfloweventbindings.yaml 2>/dev/null || true
-          kubectl apply --server-side --force-conflicts -f \
-            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workflows.yaml 2>/dev/null || true
-          kubectl apply --server-side --force-conflicts -f \
-            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workflowtaskresults.yaml 2>/dev/null || true
-          kubectl apply --server-side --force-conflicts -f \
-            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workflowtasksets.yaml 2>/dev/null || true
-          kubectl apply --server-side --force-conflicts -f \
-            https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_workflowtemplates.yaml 2>/dev/null || true
-          echo \"✅ Argo CRDs re-applied\"
-        else
-          echo \"✅ rollback succeeded\"
-          sleep 3
-        fi
-      fi
-=======
      if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -q '^pending-'; then
+       echo \"⚠️  argo-workflows release stuck — uninstalling...\"
        helm uninstall argo-workflows -n argo-workflows --wait --no-hooks 2>/dev/null || true
        sleep 10
      fi
      # CRDs are kept on uninstall (crds.keep=true). A fresh install would try to
      # recreate them and abort with 'invalid ownership metadata'. Skip CRD
      # templating when the Argo CRDs are already present on the cluster.
+     # If CRDs are missing (e.g. manual deletion), re-apply them from upstream.
      CRD_FLAG=''
      if kubectl get crd workflows.argoproj.io >/dev/null 2>&1; then
        CRD_FLAG='--set crds.install=false'
        echo 'Argo CRDs already present — installing with crds.install=false'
+     else
+       echo '📦 Argo CRDs missing — re-applying from upstream...'
+       for crd in clusterworkflowtemplates cronworkflows workfloweventbindings workflows workflowtaskresults workflowtasksets workflowtemplates; do
+         kubectl apply --server-side --force-conflicts -f \
+           \"https://raw.githubusercontent.com/argoproj/argo-workflows/v3.6.5/manifests/base/crds/minimal/argoproj.io_\${crd}.yaml\" 2>/dev/null || true
+       done
+       echo '✅ Argo CRDs re-applied'
      fi
->>>>>>> 412be77096903dec3830281504aa0cabbd3b9e71
      if ! helm upgrade --install argo-workflows argo/argo-workflows \
        --namespace argo-workflows \
        --version '1.0.7' \
@@ -459,43 +437,9 @@ PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus 
 if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
   echo "✅ Prometheus already deployed and healthy (pods=${PROM_PODS}) — skipping helm upgrade"
 else
-  # Clean up stuck pending-* release — prefer rollback to preserve CRDs
+  # Clean up stuck pending-* release
   if echo "${PROM_STATUS}" | grep -q '^pending-'; then
-<<<<<<< HEAD
-    echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — attempting rollback..."
-    if ! helm rollback prometheus 0 -n prometheus 2>/dev/null; then
-      echo "⚠️  rollback failed — uninstalling (keeping CRDs)..."
-      helm uninstall prometheus -n prometheus --no-hooks 2>/dev/null || true
-      sleep 3
-      # Ensure Prometheus Operator CRDs exist after uninstall — helm uninstall removes them
-      echo "📦 Re-applying kube-prometheus-stack CRDs..."
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-alertmanagerconfigs.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-alertmanagers.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-podmonitors.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-probes.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-prometheusagents.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-prometheuses.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-prometheusrules.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-scrapeconfigs.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-servicemonitors.yaml 2>/dev/null || true
-      kubectl apply --server-side --force-conflicts -f \
-        https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-thanosrulers.yaml 2>/dev/null || true
-      echo "✅ CRDs re-applied"
-    else
-      echo "✅ rollback succeeded"
-      sleep 3
-    fi
-=======
-    echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — rolling back..."
+    echo "⚠️  prometheus release stuck in '${PROM_STATUS}' — uninstalling..."
     helm uninstall prometheus -n prometheus --wait --no-hooks 2>/dev/null || true
     sleep 10
     # A previously interrupted install can leave the operator admission webhook
@@ -503,19 +447,26 @@ else
     # fast with "failed calling webhook ...". Remove stale webhooks before reinstall.
     kubectl delete validatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
     kubectl delete mutatingwebhookconfiguration prometheus-kube-prometheus-admission --ignore-not-found
->>>>>>> 412be77096903dec3830281504aa0cabbd3b9e71
+    # Ensure Prometheus Operator CRDs exist after uninstall — helm uninstall may remove them
+    if ! kubectl get crd prometheuses.monitoring.coreos.com >/dev/null 2>&1; then
+      echo "📦 Re-applying kube-prometheus-stack CRDs..."
+      for crd in alertmanagerconfigs alertmanagers podmonitors probes prometheusagents prometheuses prometheusrules scrapeconfigs servicemonitors thanosrulers; do
+        kubectl apply --server-side --force-conflicts -f \
+          "https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-${crd}.yaml" 2>/dev/null || true
+      done
+      echo "✅ CRDs re-applied"
+    fi
   fi
 
   echo "Installing prometheus (status='${PROM_STATUS}', pods=${PROM_PODS})..."
-<<<<<<< HEAD
-  if ! helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-=======
 
   dump_prometheus_diagnostics() {
     echo "=== Pods in prometheus namespace ==="
     kubectl get pods -n prometheus -o wide || true
     echo "=== Recent events ==="
     kubectl get events -n prometheus --sort-by='.metadata.creationTimestamp' | tail -n 40 || true
+    echo "=== CRDs check ==="
+    kubectl get crd | grep -E 'monitoring.coreos.com|prometheus' || echo "NO PROMETHEUS CRDs FOUND"
     echo "=== Not-ready pod descriptions/logs ==="
     for p in $(kubectl get pods -n prometheus --field-selector=status.phase!=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
       echo "--- describe ${p} ---"; kubectl describe pod "${p}" -n prometheus || true
@@ -529,28 +480,10 @@ else
   # any diagnostics run. The watchdog guarantees we capture cluster state and
   # kill helm before that happens.
   helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
->>>>>>> 412be77096903dec3830281504aa0cabbd3b9e71
     --namespace prometheus \
     --version '56.6.2' \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
     --force-conflicts \
-<<<<<<< HEAD
-    --wait --timeout 5m; then
-    echo "❌ Prometheus helm install failed! Diagnostics:"
-    echo "=== Pods in prometheus namespace ==="
-    kubectl get pods -n prometheus -o wide || true
-    echo "=== Recent events ==="
-    kubectl get events -n prometheus --sort-by='.metadata.creationTimestamp' | tail -n 30 || true
-    echo "=== CRDs check ==="
-    kubectl get crd | grep -E 'monitoring.coreos.com|prometheus' || echo "NO PROMETHEUS CRDs FOUND"
-    echo "=== Not-ready pod descriptions/logs ==="
-    for p in $(kubectl get pods -n prometheus --no-headers 2>/dev/null | grep -v Running | awk '{print $1}'); do
-      echo "--- describe ${p} ---"
-      kubectl describe pod "${p}" -n prometheus || true
-      echo "--- logs ${p} ---"
-      kubectl logs "${p}" -n prometheus --all-containers --tail=30 || true
-    done
-=======
     --wait --timeout 10m &
   HELM_PID=$!
 
@@ -569,7 +502,6 @@ else
     kill "${WATCHDOG_PID}" 2>/dev/null || true
     echo "❌ Prometheus helm install failed or was aborted! Diagnostics:"
     dump_prometheus_diagnostics
->>>>>>> 412be77096903dec3830281504aa0cabbd3b9e71
     exit 1
   fi
 fi
