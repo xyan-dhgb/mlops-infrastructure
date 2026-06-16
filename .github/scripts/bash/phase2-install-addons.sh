@@ -255,6 +255,7 @@ ssm_run 900 "Install Argo Workflows" \
   "timeout 60 helm repo update argo" \
   "kubectl create namespace argo-workflows --dry-run=client -o yaml | kubectl apply -f -" \
   "kubectl create namespace kltn-mul-mlops --dry-run=client -o yaml | kubectl apply -f -" \
+  "sleep 3" \
   "AW_STATUS=\$(helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].chart // empty' | sed 's/argo-workflows-//' || echo '')
    AW_PODS=\$(kubectl get deploy argo-workflows-server -n argo-workflows -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo '0')
    if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
@@ -537,6 +538,14 @@ else
   # triggers the `wait` below to return non-zero and run the final diagnostic dump.
   # The old watchdog fired at 11m30s (AFTER helm's 10m timeout), which meant helm
   # could exit before the watchdog ran — the watchdog was effectively a dead letter.
+  # FIX 7: A stale or broken cert-manager-webhook from a previous failed run
+  # will intercept ANY Ingress creation in the cluster. If it is unreachable,
+  # the API server will hang, causing Helm to time out with 'context canceled'.
+  echo "🧹 Removing stale cert-manager webhooks to prevent Ingress validation hangs..."
+  kubectl delete validatingwebhookconfiguration cert-manager-webhook --ignore-not-found || true
+  kubectl delete mutatingwebhookconfiguration cert-manager-webhook --ignore-not-found || true
+
+  # Add --debug to see EXACTLY what Helm is hanging on
   helm upgrade --install prometheus /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz \
     --namespace prometheus \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
