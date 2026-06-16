@@ -1,4 +1,4 @@
-=#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Phase 2: upload values -> configure kubectl -> install add-ons via AWS SSM
 
 set -euo pipefail
