@@ -8,7 +8,7 @@ set -euo pipefail
 echo "🔍 Looking for running bastion instance..."
 INSTANCE_ID=$(aws ec2 describe-instances \
   --filters \
-    "Name=tag:Name,Values=*bastion*,*Bastion*" \
+    "Name=tag:Name,Values=KLTN-Bastion-Host-2" \
     "Name=instance-state-name,Values=running" \
   --query "Reservations[0].Instances[0].InstanceId" \
   --output text)
