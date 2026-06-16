@@ -255,14 +255,14 @@ ssm_run 900 "Install Argo Workflows" \
   "timeout 60 helm repo update argo" \
   "kubectl create namespace argo-workflows --dry-run=client -o yaml | kubectl apply -f -" \
   "kubectl create namespace kltn-mul-mlops --dry-run=client -o yaml | kubectl apply -f -" \
-  "sleep 3" \
   "AW_STATUS=\$(helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].chart // empty' | sed 's/argo-workflows-//' || echo '')
+   AW_HELM_STATUS=\$(helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status // empty' || echo '')
    AW_PODS=\$(kubectl get deploy argo-workflows-server -n argo-workflows -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo '0')
-   if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
+   if [ \"\${AW_STATUS}\" = '1.0.7' ] && [ \"\${AW_HELM_STATUS}\" = 'deployed' ] && [ \"\${AW_PODS:-0}\" -ge 1 ]; then
      echo \"✅ Argo Workflows 1.0.7 already deployed — skipping\"
    else
-     if helm list -n argo-workflows -o json 2>/dev/null | jq -r '.[0].status' | grep -qE '^(pending-|failed)'; then
-       echo \"⚠️  argo-workflows release in broken state — uninstalling...\"
+     if echo \"\${AW_HELM_STATUS}\" | grep -qE '^(pending-|failed)'; then
+       echo \"⚠️  argo-workflows release in '\${AW_HELM_STATUS}' state — uninstalling...\"
        helm uninstall argo-workflows -n argo-workflows --wait --no-hooks 2>/dev/null || true
        sleep 10
      fi
@@ -433,8 +433,10 @@ REMOTE_CMD
 
 PROMETHEUS_HELM_CMD=$(cat <<'REMOTE_CMD'
 # Idempotency: skip if already deployed at correct version with pods ready.
+# kube-prometheus-stack uses label app.kubernetes.io/name=prometheus for the StatefulSet pods.
+# We also check the prometheus-operator deployment which uses app.kubernetes.io/name=prometheus-operator.
 PROM_STATUS=$(helm list -n prometheus -o json 2>/dev/null | jq -r '.[] | select(.name=="prometheus") | .status' || echo '')
-PROM_PODS=$(kubectl get pods -n prometheus -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c Running || echo 0)
+PROM_PODS=$(kubectl get pods -n prometheus --no-headers 2>/dev/null | grep -cE 'prometheus-prometheus-kube-prometheus-prometheus-[0-9].*Running' || echo 0)
 if [ "${PROM_STATUS}" = 'deployed' ] && [ "${PROM_PODS:-0}" -ge 1 ]; then
   echo "✅ Prometheus already deployed and healthy (pods=${PROM_PODS}) — skipping helm upgrade"
 else
@@ -538,14 +540,6 @@ else
   # triggers the `wait` below to return non-zero and run the final diagnostic dump.
   # The old watchdog fired at 11m30s (AFTER helm's 10m timeout), which meant helm
   # could exit before the watchdog ran — the watchdog was effectively a dead letter.
-  # FIX 7: A stale or broken cert-manager-webhook from a previous failed run
-  # will intercept ANY Ingress creation in the cluster. If it is unreachable,
-  # the API server will hang, causing Helm to time out with 'context canceled'.
-  echo "🧹 Removing stale cert-manager webhooks to prevent Ingress validation hangs..."
-  kubectl delete validatingwebhookconfiguration cert-manager-webhook --ignore-not-found || true
-  kubectl delete mutatingwebhookconfiguration cert-manager-webhook --ignore-not-found || true
-
-  # Add --debug to see EXACTLY what Helm is hanging on
   helm upgrade --install prometheus /tmp/helm-charts/kube-prometheus-stack-56.6.2.tgz \
     --namespace prometheus \
     --values /tmp/helm-values/monitoring/prometheus/values.yaml \
@@ -762,25 +756,37 @@ helm repo update jetstack
 kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
 # Clean up broken release (pending-* or failed) from a previously interrupted install
 RELEASE_STATUS=\$(helm status cert-manager -n cert-manager -o json 2>/dev/null | jq -r '.info.status // empty' || echo '')
-if echo \"\${RELEASE_STATUS}\" | grep -qE '^(pending-|failed)'; then
-  echo \"⚠️  cert-manager release in '\${RELEASE_STATUS}' — uninstalling for clean slate...\"
-  helm uninstall cert-manager -n cert-manager --wait --no-hooks 2>/dev/null || true
-  # Wait for Kubernetes to finalize resource deletion before reinstalling
-  echo 'Waiting for resources to be fully removed...'
-  kubectl wait --for=delete deployment/cert-manager -n cert-manager --timeout=60s 2>/dev/null || true
-  kubectl wait --for=delete deployment/cert-manager-webhook -n cert-manager --timeout=60s 2>/dev/null || true
-  kubectl wait --for=delete deployment/cert-manager-cainjector -n cert-manager --timeout=60s 2>/dev/null || true
-  sleep 10
+CM_PODS=\$(kubectl get deploy cert-manager -n cert-manager -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo '0')
+if [ \"\${RELEASE_STATUS}\" = 'deployed' ] && [ \"\${CM_PODS:-0}\" -ge 1 ]; then
+  echo \"✅ cert-manager already deployed and healthy (readyReplicas=\${CM_PODS}) — skipping helm upgrade\"
+else
+  if echo \"\${RELEASE_STATUS}\" | grep -qE '^(pending-|failed)'; then
+    echo \"⚠️  cert-manager release in '\${RELEASE_STATUS}' — uninstalling for clean slate...\"
+    helm uninstall cert-manager -n cert-manager --wait --no-hooks 2>/dev/null || true
+    # Wait for Kubernetes to finalize resource deletion before reinstalling
+    echo 'Waiting for resources to be fully removed...'
+    kubectl wait --for=delete deployment/cert-manager -n cert-manager --timeout=60s 2>/dev/null || true
+    kubectl wait --for=delete deployment/cert-manager-webhook -n cert-manager --timeout=60s 2>/dev/null || true
+    kubectl wait --for=delete deployment/cert-manager-cainjector -n cert-manager --timeout=60s 2>/dev/null || true
+    sleep 10
+    # Re-apply cert-manager CRDs if they were removed with the release
+    if ! kubectl get crd certificates.cert-manager.io >/dev/null 2>&1; then
+      echo '📦 cert-manager CRDs missing after uninstall — re-applying from upstream...'
+      kubectl apply --server-side --force-conflicts -f \
+        https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.crds.yaml 2>/dev/null || true
+      echo '✅ cert-manager CRDs re-applied'
+    fi
+  fi
+  # Remove stale webhooks from failed installs that would block reinstall
+  kubectl delete validatingwebhookconfiguration cert-manager-webhook --ignore-not-found
+  kubectl delete mutatingwebhookconfiguration cert-manager-webhook --ignore-not-found
+  helm upgrade --install cert-manager jetstack/cert-manager \
+    --namespace cert-manager \
+    --version 'v1.14.5' \
+    --values /tmp/helm-values/kserve/cert-manager-values.yaml \
+    --force \
+    --wait --timeout 5m
 fi
-# Remove stale webhooks from failed installs that would block reinstall
-kubectl delete validatingwebhookconfiguration cert-manager-webhook --ignore-not-found
-kubectl delete mutatingwebhookconfiguration cert-manager-webhook --ignore-not-found
-helm upgrade --install cert-manager jetstack/cert-manager \
-  --namespace cert-manager \
-  --version 'v1.14.5' \
-  --values /tmp/helm-values/kserve/cert-manager-values.yaml \
-  --force \
-  --wait --timeout 5m
 kubectl rollout status deployment/cert-manager -n cert-manager --timeout=120s
 kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
 echo '✅ cert-manager installed OK'"
