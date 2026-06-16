@@ -76,30 +76,53 @@ class _DTypePolicy:
     def get_config(self):
         return {"name": self.name}
 
-# Shim 3: Strip Keras 3 specific kwargs and fix stringified shapes in all layers
+# Shim 3: Strip Keras 3 specific kwargs and fix stringified shapes recursively
 _original_layer_from_config = keras.layers.Layer.from_config
+
+import sys
+
+def _fix_stringified_shapes(obj):
+    """Recursively converts stringified tuples/lists back to Python objects in config."""
+    if isinstance(obj, dict):
+        for k, v in list(obj.items()):
+            if isinstance(v, str) and (
+                (v.startswith("(") and v.endswith(")")) or 
+                (v.startswith("[") and v.endswith("]"))
+            ):
+                try:
+                    obj[k] = eval(v, {"None": None, "null": None})
+                except Exception:
+                    pass
+            else:
+                _fix_stringified_shapes(v)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, str) and (
+                (v.startswith("(") and v.endswith(")")) or 
+                (v.startswith("[") and v.endswith("]"))
+            ):
+                try:
+                    obj[i] = eval(v, {"None": None, "null": None})
+                except Exception:
+                    pass
+            else:
+                _fix_stringified_shapes(v)
 
 @classmethod
 def _patched_layer_from_config(cls, config):
     config.pop("quantization_config", None)
-    
-    # Fix any stringified tuples (e.g., target_shape="(128, 128)")
-    for k, v in list(config.items()):
-        if isinstance(v, str) and v.startswith("(") and v.endswith(")"):
-            try:
-                config[k] = eval(v, {"None": None})
-            except Exception:
-                pass
-                
+    _fix_stringified_shapes(config)
     return _original_layer_from_config.__func__(cls, config)
 
 keras.layers.Layer.from_config = _patched_layer_from_config
 
-# Shim 4: Fix Keras 3 inbound_nodes simplified format
+# Shim 4: Fix Keras 3 inbound_nodes and wrap in try-except to dump locals
 _original_model_from_config = keras.models.Model.from_config
 
 @classmethod
 def _patched_model_from_config(cls, config, custom_objects=None):
+    _fix_stringified_shapes(config)
+    
     if "layers" in config:
         for layer_config in config["layers"]:
             inbound_nodes = layer_config.get("inbound_nodes", [])
@@ -116,7 +139,16 @@ def _patched_model_from_config(cls, config, custom_objects=None):
                     new_inbound.append(node)
             if new_inbound:
                 layer_config["inbound_nodes"] = new_inbound
-    return _original_model_from_config.__func__(cls, config, custom_objects)
+                
+    try:
+        return _original_model_from_config.__func__(cls, config, custom_objects)
+    except AttributeError as e:
+        if "'str' object has no attribute 'as_list'" in str(e):
+            _, _, tb = sys.exc_info()
+            while tb.tb_next:
+                tb = tb.tb_next
+            logger.error("CRASH in from_config. Locals: %s", tb.tb_frame.f_locals)
+        raise e
 
 keras.models.Model.from_config = _patched_model_from_config
 # ───────────────────────────────────────────────────────────────────────────────
