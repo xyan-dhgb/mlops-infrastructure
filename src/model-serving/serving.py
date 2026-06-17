@@ -259,7 +259,17 @@ def _preprocess_tabular(raw_dict: dict, preproc: dict) -> np.ndarray:
         df[col] = le.transform([val])
 
     X = df.values.astype(np.float32)
-    X = imputer.transform(X)   # fill NaN with median
+
+    # imputer was fit on numeric-only columns (excludes categoricals already label-encoded).
+    # Apply imputer only on those columns to avoid shape mismatch.
+    cat_cols = set(label_encoders.keys())
+    numeric_idx = [i for i, c in enumerate(feature_cols) if c not in cat_cols]
+    if X.shape[1] != imputer.n_features_in_:
+        # Selective imputation: only numeric columns
+        X[:, numeric_idx] = imputer.transform(X[:, numeric_idx])
+    else:
+        X = imputer.transform(X)   # fill NaN with median (all cols)
+
     X = scaler.transform(X)    # standardize
     return X.astype(np.float32)
 
