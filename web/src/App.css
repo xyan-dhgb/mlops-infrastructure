@@ -1,0 +1,138 @@
+/* ========================================
+   App Layout & Composition
+   ======================================== */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ===== Global Nav ===== */
+.global-nav {
+  background: var(--color-surface-black);
+  color: var(--color-on-dark);
+  height: 44px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.global-nav__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: 100%;
+}
+
+.global-nav__logo {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.global-nav__title {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: -0.12px;
+}
+
+/* ===== Hero ===== */
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 340px;
+  background: linear-gradient(
+    180deg,
+    var(--color-surface-black) 0%,
+    var(--color-surface-tile-1) 100%
+  );
+}
+
+.hero__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.hero__headline {
+  color: var(--color-on-dark);
+}
+
+.hero__subtitle {
+  color: var(--color-body-muted);
+  max-width: 600px;
+}
+
+/* ===== Main Grid ===== */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--space-xl);
+  align-items: start;
+}
+
+.main-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.main-col--result {
+  position: sticky;
+  top: 68px; /* nav(44) + gap(24) */
+}
+
+/* ===== Cards ===== */
+.card__title {
+  margin-bottom: var(--space-md);
+  color: var(--color-ink);
+}
+
+.result-card {
+  min-height: 400px;
+}
+
+
+/* ===== Predict Button ===== */
+.predict-btn {
+  width: 100%;
+  padding: 14px 28px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+/* ===== Footer ===== */
+.app-footer {
+  background: var(--color-canvas-parchment);
+  padding: var(--space-xl) 0;
+  margin-top: auto;
+  text-align: center;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 833px) {
+  .main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .main-col--result {
+    position: static;
+    order: -1;
+  }
+
+  .hero {
+    min-height: 260px;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero {
+    min-height: 200px;
+    padding: var(--space-xl) 0;
+  }
+}
