@@ -119,6 +119,35 @@ keras.layers.Layer.from_config = _patched_layer_from_config
 # Shim 4: Fix Keras 3 inbound_nodes and wrap in try-except to dump locals
 _original_model_from_config = keras.models.Model.from_config
 
+
+def _convert_keras3_node(node):
+    """Convert a single Keras 3.x inbound_node (dict with 'args'/'kwargs')
+    to the Keras 2.x format ([[layer_name, node_index, tensor_index, kwargs]])."""
+    if not (isinstance(node, dict) and "args" in node):
+        return None  # Not a Keras 3 node
+
+    converted = []
+    for arg in node.get("args", []):
+        if isinstance(arg, dict) and arg.get("class_name") == "__keras_tensor__":
+            history = arg["config"]["keras_history"]
+            # history = [layer_name, node_index, tensor_index]
+            converted.append([history[0], history[1], history[2], {}])
+        elif isinstance(arg, list):
+            # List of __keras_tensor__ (e.g. Concatenate, Add, Multiply)
+            sub = []
+            for item in arg:
+                if isinstance(item, dict) and item.get("class_name") == "__keras_tensor__":
+                    h = item["config"]["keras_history"]
+                    sub.append([h[0], h[1], h[2], {}])
+            if sub:
+                converted.extend(sub)
+
+    # kwargs may also contain __keras_tensor__ refs — drop them
+    # (training, mask, etc. are runtime-only, not needed for topology)
+
+    return converted if converted else None
+
+
 @classmethod
 def _patched_model_from_config(cls, config, custom_objects=None):
     _fix_stringified_shapes(config)
@@ -128,8 +157,14 @@ def _patched_model_from_config(cls, config, custom_objects=None):
             inbound_nodes = layer_config.get("inbound_nodes", [])
             new_inbound = []
             for node in inbound_nodes:
-                if isinstance(node, str):
+                # ── Keras 3.x dict format ──
+                k3 = _convert_keras3_node(node)
+                if k3 is not None:
+                    new_inbound.append(k3)
+                # ── Keras 3.x bare-string shortcut ──
+                elif isinstance(node, str):
                     new_inbound.append([[node, 0, 0, {}]])
+                # ── Keras 2.x list format (may need wrapping) ──
                 elif isinstance(node, list):
                     if len(node) > 0 and isinstance(node[0], str):
                         new_inbound.append([node])
