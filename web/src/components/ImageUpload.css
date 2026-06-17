@@ -1,0 +1,109 @@
+.image-upload-wrapper {
+  width: 100%;
+}
+
+/* Dropzone */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-xxl) var(--space-lg);
+  border: 2px dashed var(--color-hairline);
+  border-radius: var(--rounded-lg);
+  background: var(--color-canvas-parchment);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  min-height: 220px;
+}
+
+.dropzone:hover,
+.dropzone--active {
+  border-color: var(--color-primary);
+  background: rgba(0, 102, 204, 0.03);
+}
+
+.dropzone__icon {
+  color: var(--color-ink-muted-48);
+  transition: color 0.2s ease;
+}
+
+.dropzone:hover .dropzone__icon,
+.dropzone--active .dropzone__icon {
+  color: var(--color-primary);
+}
+
+.dropzone__title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.dropzone__subtitle {
+  font-size: 14px;
+  color: var(--color-ink-muted-48);
+}
+
+.dropzone__hint {
+  font-size: 12px;
+  color: var(--color-ink-muted-48);
+  margin-top: var(--space-xs);
+}
+
+/* Preview */
+.preview-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.preview-image-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-black);
+  border-radius: var(--rounded-lg);
+  overflow: hidden;
+  max-height: 360px;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.preview-filename {
+  color: var(--color-ink-muted-48);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-clear {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-malignant);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-xxs) var(--space-xs);
+  border-radius: var(--rounded-xs);
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.btn-clear:hover {
+  background: rgba(255, 59, 48, 0.08);
+}
