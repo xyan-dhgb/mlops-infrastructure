@@ -200,6 +200,10 @@ CLAHE_CLIP     = 2.0
 GAUSS_KERNEL   = (3, 3)
 CATEGORICAL_COLS = ["sex", "anatom_site_general"]
 
+# XAI – Grad-CAM (from mlops-model/Multimodal/utils/xai.py)
+CONV_LAST  = os.environ.get("GRADCAM_LAYER", "top_conv")  # last conv layer of EfficientNetB3
+ENABLE_XAI = os.environ.get("ENABLE_XAI", "true").lower() == "true"
+
 
 def _dummy_focal_loss(y_true, y_pred):
     """Placeholder to load model without missing custom object error."""
@@ -277,9 +281,10 @@ def _preprocess_tabular(raw_dict: dict, preproc: dict) -> np.ndarray:
 class SkinPredictionModel(Model):
     def __init__(self, name: str):
         super().__init__(name)
-        self.model    = None  
-        self.preproc  = None
-        self.threshold = float(os.environ.get("THRESHOLD", "0.5"))
+        self.model      = None
+        self.grad_model  = None   # Grad-CAM sub-model (built once after load)
+        self.preproc    = None
+        self.threshold  = float(os.environ.get("THRESHOLD", "0.5"))
         self.load()
 
     def load(self):
@@ -316,10 +321,22 @@ class SkinPredictionModel(Model):
         else:
             logger.warning("[load] best_threshold.txt not found, using default %.2f", self.threshold)
 
+        # Build Grad-CAM sub-model once (avoids rebuilding on every predict)
+        if ENABLE_XAI:
+            try:
+                self.grad_model = keras.Model(
+                    inputs=self.model.inputs,
+                    outputs=[self.model.get_layer(CONV_LAST).output, self.model.output],
+                )
+                logger.info("[load] Grad-CAM sub-model built (layer=%s)", CONV_LAST)
+            except Exception as e:
+                logger.warning("[load] Grad-CAM init failed: %s", e)
+                self.grad_model = None
+
         n_features = len(self.preproc.get("feature_cols", []))
         logger.info(
-            "[load] Ready. features=%d  threshold=%.4f",
-            n_features, self.threshold,
+            "[load] Ready. features=%d  threshold=%.4f  xai=%s",
+            n_features, self.threshold, ENABLE_XAI and self.grad_model is not None,
         )
         self.ready = True
 
@@ -348,33 +365,96 @@ class SkinPredictionModel(Model):
 
         return {"image": img_t, "tabular": tab_t}
 
+    # ── Grad-CAM helpers (adapted from mlops-model/Multimodal/utils/xai.py) ──
+
+    def _compute_gradcam(self, img_tensor, tab_tensor):
+        """
+        Compute Grad-CAM heatmap on the last conv layer.
+        img_tensor: shape (1, 224, 224, 3)  float32
+        tab_tensor: shape (1, N)            float32
+        Returns: cam np.ndarray (H_conv, W_conv) in [0, 1]
+        """
+        with tf.GradientTape() as tape:
+            conv_out, pred = self.grad_model({
+                "image_input":   tf.constant(img_tensor),
+                "tabular_input": tf.constant(tab_tensor),
+            })
+            loss = pred[:, 0]
+        grads   = tape.gradient(loss, conv_out)[0]      # (H, W, C)
+        weights = tf.reduce_mean(grads, axis=(0, 1))     # (C,)
+        cam     = tf.reduce_sum(conv_out[0] * weights, axis=-1)  # (H, W)
+        cam     = tf.nn.relu(cam).numpy()
+        cam     = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+        return cam
+
+    def _gradcam_to_base64(self, cam, img_float):
+        """
+        Overlay Grad-CAM heatmap on the preprocessed image → base64 PNG.
+        cam:       (H_conv, W_conv) float in [0, 1]
+        img_float: (224, 224, 3)    float in [0, 1]
+        Returns: base64-encoded PNG string
+        """
+        orig = (img_float * 255).astype(np.uint8)  # (224, 224, 3) uint8
+
+        # Resize cam to image dimensions
+        cam_resized = cv2.resize(
+            (cam * 255).astype(np.uint8),
+            (orig.shape[1], orig.shape[0]),
+            interpolation=cv2.INTER_LINEAR,
+        )
+
+        # Apply JET colormap (cv2 returns BGR → convert to RGB)
+        heat_bgr = cv2.applyColorMap(cam_resized, cv2.COLORMAP_JET)
+        heat_rgb = cv2.cvtColor(heat_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+
+        # Blend: 45% heatmap + 55% original
+        overlay = np.clip(0.45 * heat_rgb + 0.55 * orig.astype(np.float32) / 255.0, 0, 1)
+        overlay_uint8 = (overlay * 255).astype(np.uint8)
+
+        # Encode to base64 PNG
+        img_pil = Image.fromarray(overlay_uint8)
+        buf = io.BytesIO()
+        img_pil.save(buf, format="PNG", optimize=True)
+        buf.seek(0)
+        return base64.b64encode(buf.read()).decode("utf-8")
+
+    # ── Predict ───────────────────────────────────────────────────────────
+
     def predict(self, data: dict, headers=None):
         # Binary prediction: Benign (0) / Malignant (1).
         t0 = time.perf_counter()
 
-        prob = float(
-            self.model.predict(
-                {"image_input": data["image"], "tabular_input": data["tabular"]},
-                verbose=0,
-            )[0, 0]
-        )
+        inputs = {"image_input": data["image"], "tabular_input": data["tabular"]}
+        prob   = float(self.model.predict(inputs, verbose=0)[0, 0])
 
         pred_class = int(prob >= self.threshold)
         label      = "Malignant" if pred_class == 1 else "Benign"
+
+        # Grad-CAM (optional, controlled by ENABLE_XAI env)
+        gradcam_b64 = None
+        if self.grad_model is not None:
+            try:
+                cam = self._compute_gradcam(data["image"], data["tabular"])
+                gradcam_b64 = self._gradcam_to_base64(cam, data["image"][0])
+            except Exception as e:
+                logger.warning("[predict] Grad-CAM failed: %s", e)
+
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         logger.info(
-            "[predict] %s  prob=%.4f  threshold=%.2f  ms=%.1f",
-            label, prob, self.threshold, elapsed_ms,
+            "[predict] %s  prob=%.4f  threshold=%.2f  xai=%s  ms=%.1f",
+            label, prob, self.threshold, gradcam_b64 is not None, elapsed_ms,
         )
 
-        return {
-            "predictions": [{
-                "label":       label,
-                "probability": round(prob, 4),
-                "inference_ms": round(elapsed_ms, 1),
-            }]
+        result = {
+            "label":       label,
+            "probability": round(prob, 4),
+            "inference_ms": round(elapsed_ms, 1),
         }
+        if gradcam_b64:
+            result["gradcam_base64"] = gradcam_b64
+
+        return {"predictions": [result]}
 
 
 if __name__ == "__main__":

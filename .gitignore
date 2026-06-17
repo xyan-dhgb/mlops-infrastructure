@@ -88,3 +88,4 @@ env.local
 env.*.local
 # Coverage reports (if using testing tools like Jest)
 coverage/
+.vite/
