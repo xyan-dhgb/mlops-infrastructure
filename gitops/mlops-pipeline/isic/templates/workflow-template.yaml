@@ -8,6 +8,17 @@ spec:
   serviceAccountName: isic-ml-workflow
   entrypoint: pipeline
   activeDeadlineSeconds: 21600
+  metrics:
+    prometheus:
+      - name: argo_workflow_duration_seconds
+        labels:
+          - key: workflow_name
+            value: "{{workflow.name}}"
+          - key: phase
+            value: "{{workflow.status}}"
+        help: "Duration of workflow in seconds"
+        gauge:
+          value: "{{workflow.duration}}"
   # Persist container logs to S3 during execution.
 
   archiveLogs: true
