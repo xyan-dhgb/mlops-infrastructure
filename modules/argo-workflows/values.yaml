@@ -19,12 +19,10 @@ controller:
     enabled: true
   telemetryConfig:
     enabled: true
-  metrics:
-    enabled: true
-    serviceMonitor:
-      enabled: true              # Tạo ServiceMonitor → Prometheus tự scrape /metrics port 9090
-      additionalLabels:
-        release: prometheus      # Phải match label selector của kube-prometheus-stack
+  serviceMonitor:
+    enabled: true              # Tạo ServiceMonitor → Prometheus tự scrape /metrics port 9090
+    additionalLabels:
+      release: prometheus      # Phải match label selector của kube-prometheus-stack
   resources:
     requests:
       cpu: "250m"
