@@ -53,14 +53,14 @@ spec:
         # GPU idle quá lâu — lãng phí chi phí spot instance
         - alert: GPUIdleWaste
           expr: |
-            avg by (node, gpu) (DCGM_FI_DEV_GPU_UTIL) < 20
+            avg by (Hostname, gpu) (DCGM_FI_DEV_GPU_UTIL) < 20
           for: 10m
           labels:
             severity: warning
             team: mlops
           annotations:
             summary: "GPU idle < 20% trong 10 phút"
-            description: "Node {{ $labels.node }} GPU {{ $labels.gpu }}: util={{ $value | humanize }}% — lãng phí chi phí."
+            description: "Node {{ $labels.Hostname }} GPU {{ $labels.gpu }}: util={{ $value | humanize }}% — lãng phí chi phí."
 
         # VRAM gần đầy — nguy cơ OOM crash training
         - alert: VRAMNearFull
@@ -72,7 +72,7 @@ spec:
             team: mlops
           annotations:
             summary: "VRAM > 90% — nguy cơ OOM"
-            description: "Node {{ $labels.node }} GPU {{ $labels.gpu }}: VRAM={{ $value | humanize }}% — có thể crash."
+            description: "Node {{ $labels.Hostname }} GPU {{ $labels.gpu }}: VRAM={{ $value | humanize }}% — có thể crash."
 
         # GPU power cao nhưng utilization thấp — thermal throttling hoặc memory bottleneck
         - alert: GPUPowerHighUtilLow
@@ -86,7 +86,7 @@ spec:
             team: mlops
           annotations:
             summary: "GPU power cao nhưng utilization thấp — I/O bottleneck"
-            description: "Node {{ $labels.node }}: power={{ $value }}W nhưng util thấp. Kiểm tra data loading."
+            description: "Node {{ $labels.Hostname }}: power={{ $value }}W nhưng util thấp. Kiểm tra data loading."
 
     # ── Custom ML Training Metrics ──────────────────────────────────────────
     # (scrape từ train pod metrics endpoint port 8000)

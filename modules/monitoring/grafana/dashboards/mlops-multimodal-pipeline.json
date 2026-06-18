@@ -177,7 +177,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "avg(DCGM_FI_DEV_GPU_UTIL{node=~\".+ml.+\"})",
+          "expr": "avg(DCGM_FI_DEV_GPU_UTIL) or vector(0)",
           "legendFormat": "GPU Util"
         }
       ]
@@ -197,7 +197,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL * 100",
+          "expr": "avg(DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL * 100) or vector(0)",
           "legendFormat": "VRAM %"
         }
       ]
@@ -218,7 +218,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "DCGM_FI_DEV_POWER_USAGE",
-          "legendFormat": "{{node}} GPU {{gpu}}"
+          "legendFormat": "{{Hostname}} GPU {{gpu}}"
         }
       ]
     },
@@ -238,7 +238,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "DCGM_FI_DEV_GPU_UTIL",
-          "legendFormat": "{{node}} GPU {{gpu}}"
+          "legendFormat": "{{Hostname}} GPU {{gpu}}"
         }
       ]
     },
