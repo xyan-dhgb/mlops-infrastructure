@@ -45,7 +45,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(argo_workflows_count{phase=\"Failed\"}) or vector(0)",
+          "expr": "sum(argo_workflows_gauge{phase=\"Failed\"}) or vector(0)",
           "legendFormat": "Failed"
         }
       ]
@@ -75,7 +75,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(argo_workflows_count{phase=\"Running\"}) or vector(0)",
+          "expr": "sum(argo_workflows_gauge{phase=\"Running\"}) or vector(0)",
           "legendFormat": "Running"
         }
       ]
@@ -104,7 +104,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(argo_workflows_count{phase=\"Succeeded\"}) or vector(0)",
+          "expr": "sum(argo_workflows_gauge{phase=\"Succeeded\"}) or vector(0)",
           "legendFormat": "Succeeded"
         }
       ]
@@ -124,7 +124,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(argo_workflows_count{phase=\"Succeeded\"}) / clamp_min(sum(argo_workflows_count{phase=~\"Succeeded|Failed\"}), 1)",
+          "expr": "sum(argo_workflows_gauge{phase=\"Succeeded\"}) / clamp_min(sum(argo_workflows_gauge{phase=~\"Succeeded|Failed\"}), 1)",
           "legendFormat": "Success Rate"
         }
       ]
