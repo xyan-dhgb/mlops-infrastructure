@@ -14,7 +14,7 @@ spec:
         # Workflow thất bại — alert ngay
         - alert: ArgoWorkflowFailed
           expr: |
-            increase(argo_workflows_count{phase="Failed"}[10m]) > 0
+            increase(argo_workflows_gauge{phase="Failed"}[10m]) > 0
           for: 0m
           labels:
             severity: critical
@@ -26,7 +26,7 @@ spec:
         # Workflow pending quá 30 phút — scheduling bottleneck (GPU node chưa scale up?)
         - alert: ArgoWorkflowPendingTooLong
           expr: |
-            argo_workflows_count{phase="Pending"} > 0
+            argo_workflows_gauge{phase="Pending"} > 0
           for: 30m
           labels:
             severity: warning
