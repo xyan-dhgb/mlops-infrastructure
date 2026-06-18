@@ -70,7 +70,9 @@ spec:
           requests: { cpu: "500m", memory: "1Gi" }
           limits: { cpu: "1", memory: "2Gi" }
       nodeSelector:
-        role: general
+        role: cpu-ml
+      tolerations:
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
 
     # ── Step: preprocess-image ──────────────────────────────────────────────────
     # Node: cpu-ml — CLAHE, Gaussian, contrast enhancement on raw images (I/O heavy)
