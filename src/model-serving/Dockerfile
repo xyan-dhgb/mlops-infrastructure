@@ -19,8 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy predictor source code
+# Copy predictor source code + font for Vietnamese XAI overlay
 COPY serving.py .
+COPY DejaVuSans-Bold.ttf .
 
 # KServe default port
 EXPOSE 8080

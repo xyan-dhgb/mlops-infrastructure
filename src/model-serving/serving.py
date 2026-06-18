@@ -35,7 +35,7 @@ import time
 import cv2
 import numpy as np
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import tf_keras as keras   # Keras 2.x legacy — tương thích với model .h5 train bằng TF 2.x
 import tensorflow as tf
 from kserve import Model, ModelServer
@@ -203,6 +203,16 @@ CATEGORICAL_COLS = ["sex", "anatom_site_general"]
 # XAI – Grad-CAM (from mlops-model/Multimodal/utils/xai.py)
 CONV_LAST  = os.environ.get("GRADCAM_LAYER", "top_conv")  # last conv layer of EfficientNetB3
 ENABLE_XAI = os.environ.get("ENABLE_XAI", "true").lower() == "true"
+
+# Font for XAI overlay text (Vietnamese diacritics support)
+_FONT_PATH = os.path.join(os.path.dirname(__file__), "DejaVuSans-Bold.ttf")
+try:
+    _FONT_LABEL = ImageFont.truetype(_FONT_PATH, 14)
+    _FONT_CONF  = ImageFont.truetype(_FONT_PATH, 12)
+except (OSError, IOError):
+    logger.warning("DejaVuSans-Bold.ttf not found, falling back to default font")
+    _FONT_LABEL = ImageFont.load_default()
+    _FONT_CONF  = ImageFont.load_default()
 
 
 def _dummy_focal_loss(y_true, y_pred):
@@ -387,11 +397,14 @@ class SkinPredictionModel(Model):
         cam     = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
         return cam
 
-    def _gradcam_to_base64(self, cam, img_float):
+    def _gradcam_to_base64(self, cam, img_float, label="", probability=0.0):
         """
-        Overlay Grad-CAM heatmap on the preprocessed image → base64 PNG.
-        cam:       (H_conv, W_conv) float in [0, 1]
-        img_float: (224, 224, 3)    float in [0, 1]
+        Overlay Grad-CAM heatmap on the preprocessed image with bounding box
+        around the highest-activation region and text annotation → base64 PNG.
+        cam:         (H_conv, W_conv) float in [0, 1]
+        img_float:   (224, 224, 3)    float in [0, 1]
+        label:       prediction label string
+        probability: prediction confidence (0-1)
         Returns: base64-encoded PNG string
         """
         orig = (img_float * 255).astype(np.uint8)  # (224, 224, 3) uint8
@@ -411,8 +424,66 @@ class SkinPredictionModel(Model):
         overlay = np.clip(0.45 * heat_rgb + 0.55 * orig.astype(np.float32) / 255.0, 0, 1)
         overlay_uint8 = (overlay * 255).astype(np.uint8)
 
+        # ── Bounding box around highest activation region ──
+        # Threshold at top 20% activation to find the "hot zone"
+        threshold = int(0.8 * 255)
+        _, binary = cv2.threshold(cam_resized, threshold, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Work in BGR for cv2 drawing, convert back at end
+        canvas = cv2.cvtColor(overlay_uint8, cv2.COLOR_RGB2BGR)
+
+        if contours:
+            # Merge all contour points to find one bounding rect
+            all_pts = np.concatenate(contours)
+            x, y, w, h = cv2.boundingRect(all_pts)
+            # Pad slightly for visibility
+            pad = 4
+            x, y = max(0, x - pad), max(0, y - pad)
+            w, h = min(canvas.shape[1] - x, w + 2 * pad), min(canvas.shape[0] - y, h + 2 * pad)
+            cv2.rectangle(canvas, (x, y), (x + w, y + h), (0, 140, 255), 2)  # orange box (BGR)
+
+        # ── Text annotation (PIL for Vietnamese Unicode support) ──
+        # Convert canvas BGR → RGB → PIL Image for text drawing
+        result_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(result_rgb)
+        draw = ImageDraw.Draw(pil_img)
+
+        label_vi = "Ác tính" if label == "Malignant" else "Lành tính"
+        text_label = f"{label} ({label_vi})"
+        text_conf  = f"Độ tin cậy: {probability * 100:.2f}%"
+
+        color_label = (255, 60, 60) if label == "Malignant" else (60, 200, 60)  # RGB
+        color_conf  = (255, 255, 255)
+
+        # Measure text bounding boxes
+        bbox1 = draw.textbbox((0, 0), text_label, font=_FONT_LABEL)
+        tw1, th1 = bbox1[2] - bbox1[0], bbox1[3] - bbox1[1]
+        bbox2 = draw.textbbox((0, 0), text_conf, font=_FONT_CONF)
+        tw2, th2 = bbox2[2] - bbox2[0], bbox2[3] - bbox2[1]
+
+        img_w = pil_img.width
+        pad_x, pad_y = 6, 3
+
+        # Line 1: label (centered, top)
+        x1 = (img_w - tw1) // 2
+        y1 = 6
+        draw.rectangle([x1 - pad_x, y1 - pad_y, x1 + tw1 + pad_x, y1 + th1 + pad_y],
+                       fill=(0, 0, 0, 200))
+        draw.text((x1, y1), text_label, font=_FONT_LABEL, fill=color_label)
+
+        # Line 2: confidence (centered, below label)
+        x2 = (img_w - tw2) // 2
+        y2 = y1 + th1 + pad_y * 2 + 4
+        draw.rectangle([x2 - pad_x, y2 - pad_y, x2 + tw2 + pad_x, y2 + th2 + pad_y],
+                       fill=(0, 0, 0, 200))
+        draw.text((x2, y2), text_conf, font=_FONT_CONF, fill=color_conf)
+
+        # Convert PIL back to numpy for final encoding
+        result_rgb = np.array(pil_img)
+
         # Encode to base64 PNG
-        img_pil = Image.fromarray(overlay_uint8)
+        img_pil = Image.fromarray(result_rgb)
         buf = io.BytesIO()
         img_pil.save(buf, format="PNG", optimize=True)
         buf.seek(0)
@@ -435,7 +506,7 @@ class SkinPredictionModel(Model):
         if self.grad_model is not None:
             try:
                 cam = self._compute_gradcam(data["image"], data["tabular"])
-                gradcam_b64 = self._gradcam_to_base64(cam, data["image"][0])
+                gradcam_b64 = self._gradcam_to_base64(cam, data["image"][0], label, prob)
             except Exception as e:
                 logger.warning("[predict] Grad-CAM failed: %s", e)
 
