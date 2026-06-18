@@ -416,22 +416,14 @@ class SkinPredictionModel(Model):
             interpolation=cv2.INTER_LINEAR,
         )
 
-        # Apply JET colormap (cv2 returns BGR → convert to RGB)
-        heat_bgr = cv2.applyColorMap(cam_resized, cv2.COLORMAP_JET)
-        heat_rgb = cv2.cvtColor(heat_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-
-        # Blend: 45% heatmap + 55% original
-        overlay = np.clip(0.45 * heat_rgb + 0.55 * orig.astype(np.float32) / 255.0, 0, 1)
-        overlay_uint8 = (overlay * 255).astype(np.uint8)
-
         # ── Bounding box around highest activation region ──
         # Threshold at top 20% activation to find the "hot zone"
         threshold = int(0.8 * 255)
         _, binary = cv2.threshold(cam_resized, threshold, 255, cv2.THRESH_BINARY)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Work in BGR for cv2 drawing, convert back at end
-        canvas = cv2.cvtColor(overlay_uint8, cv2.COLOR_RGB2BGR)
+        # Work directly on original RGB image for drawing
+        canvas = orig.copy()
 
         if contours:
             # Merge all contour points to find one bounding rect
@@ -441,12 +433,11 @@ class SkinPredictionModel(Model):
             pad = 4
             x, y = max(0, x - pad), max(0, y - pad)
             w, h = min(canvas.shape[1] - x, w + 2 * pad), min(canvas.shape[0] - y, h + 2 * pad)
-            cv2.rectangle(canvas, (x, y), (x + w, y + h), (0, 140, 255), 2)  # orange box (BGR)
+            cv2.rectangle(canvas, (x, y), (x + w, y + h), (255, 140, 0), 2)  # orange box (RGB)
 
         # ── Text annotation (PIL for Vietnamese Unicode support) ──
-        # Convert canvas BGR → RGB → PIL Image for text drawing
-        result_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(result_rgb)
+        # Convert canvas RGB → PIL Image for text drawing
+        pil_img = Image.fromarray(canvas)
         draw = ImageDraw.Draw(pil_img)
 
         label_vi = "Ác tính" if label == "Malignant" else "Lành tính"
