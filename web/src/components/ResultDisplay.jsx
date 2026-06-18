@@ -45,6 +45,24 @@ export default function ResultDisplay({ result, loading, error }) {
         {isMalignant ? 'Ác tính' : 'Lành tính'}
       </div>
 
+      {/* XAI Image Box */}
+      {result.gradcam_base64 && (
+        <div className="xai-container" style={{ marginTop: '1rem', textAlign: 'center' }}>
+          <p className="caption" style={{ marginBottom: '0.5rem', fontWeight: 500 }}>
+            Khoanh vùng giải thích XAI (Grad-CAM)
+          </p>
+          <img 
+            src={`data:image/png;base64,${result.gradcam_base64}`} 
+            alt="XAI Explanation"
+            style={{ 
+              maxWidth: '100%', 
+              borderRadius: '8px', 
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)' 
+            }}
+          />
+        </div>
+      )}
+
     </div>
   )
 }
