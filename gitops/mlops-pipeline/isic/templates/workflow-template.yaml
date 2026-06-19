@@ -19,6 +19,7 @@ spec:
         help: "Duration of workflow in seconds"
         gauge:
           value: '{{ `{{workflow.duration}}` }}'
+          realtime: false
   # Persist container logs to S3 during execution.
 
   archiveLogs: true
