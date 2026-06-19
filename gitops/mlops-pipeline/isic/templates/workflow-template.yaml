@@ -13,12 +13,12 @@ spec:
       - name: argo_workflow_duration_seconds
         labels:
           - key: workflow_name
-            value: "{{workflow.name}}"
+            value: '{{ `{{workflow.name}}` }}'
           - key: phase
-            value: "{{workflow.status}}"
+            value: '{{ `{{workflow.status}}` }}'
         help: "Duration of workflow in seconds"
         gauge:
-          value: "{{workflow.duration}}"
+          value: '{{ `{{workflow.duration}}` }}'
   # Persist container logs to S3 during execution.
 
   archiveLogs: true
