@@ -187,9 +187,16 @@ spec:
       metadata:
         labels:
           metrics: enabled # PodMonitor discover pod này để scrape port 8000
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.train }}"
         command: ["python", "train.py"]
+        volumeMounts:
+          - mountPath: /dev/shm
+            name: dshm
         ports:
           - name: metrics # Prometheus scrape target
             containerPort: 8000
