@@ -79,8 +79,11 @@ jobs:
         run: |
           terraform init -reconfigure -input=false -no-color > /dev/null
           ROLE_ARN=$(terraform output -raw ml_pipeline_irsa_role_arn)
+          EFS_ID=$(terraform output -raw efs_file_system_id)
           echo "ML_PIPELINE_IRSA_ROLE_ARN=${ROLE_ARN}" >> "$GITHUB_ENV"
+          echo "EFS_FILE_SYSTEM_ID=${EFS_ID}" >> "$GITHUB_ENV"
           echo "ℹ️ IRSA Role ARN: ${ROLE_ARN}"
+          echo "ℹ️ EFS ID: ${EFS_ID}"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -99,6 +102,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           ML_PIPELINE_IRSA_ROLE_ARN: ${{ env.ML_PIPELINE_IRSA_ROLE_ARN }}
+          EFS_FILE_SYSTEM_ID: ${{ env.EFS_FILE_SYSTEM_ID }}
 
       # Summary
       - name: Post bootstrap summary

@@ -199,17 +199,3 @@ module "efs" {
   depends_on = [module.vpc, module.security_group]
 }
 
-# EFS Storage Class
-resource "kubernetes_storage_class" "efs_sc" {
-  metadata {
-    name = "efs-sc"
-  }
-  storage_provisioner = "efs.csi.aws.com"
-  parameters = {
-    provisioningMode = "efs-ap"
-    fileSystemId     = module.efs.efs_file_system_id
-    directoryPerms   = "700"
-  }
-
-  depends_on = [module.eks, module.efs]
-}
