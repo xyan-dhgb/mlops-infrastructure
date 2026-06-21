@@ -27,7 +27,7 @@ output "eks_control_plane_security_group_id" {
 
 output "bastion_security_group_id" {
   description = "The security group ID for Bastion Host"
-  value       = module.security_group.bastion_security_group_id
+  value       = module.bastion.bastion_security_group_id
 }
 
 output "efs_file_system_id" {
