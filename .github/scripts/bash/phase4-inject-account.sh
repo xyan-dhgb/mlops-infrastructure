@@ -42,6 +42,9 @@ ssm_run 120 "Phase 4: Inject Helm params into GitOps Apps" \
     --type merge \
     -p '${HELM_PARAMS_JSON}'" \
   \
+  "# Workaround for immutable StorageClass: Delete the dummy one so ArgoCD recreates it with real EFS_ID" \
+  "kubectl delete sc efs-sc --ignore-not-found || true" \
+  \
   "# Trigger ArgoCD to re-render the Helm chart with patched values" \
   "echo '🔄 Triggering ArgoCD refresh for isic-ml-pipeline...'" \
   "kubectl annotate application isic-ml-pipeline -n argocd \
