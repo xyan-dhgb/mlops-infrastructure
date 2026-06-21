@@ -30,10 +30,14 @@ spec:
         awsRegion: "ap-southeast-1"
         extraArgs:
           scale-down-unneeded-time: "5m"
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /status/terminatingReplicas
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-      - ServerSideApply=true
       - CreateNamespace=true
