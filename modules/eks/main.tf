@@ -322,3 +322,14 @@ resource "aws_eks_node_group" "cpu_nodes" {
     Name = "${local.cluster_name}-cpu-node-group"
   }
 }
+
+# Install CSI Driver for EFS (Elastic File System) for EKS Worker Node
+resource "aws_eks_addon" "aws_efs_csi_driver" {
+  cluster_name             = aws_eks_cluster.main.name
+  addon_name               = "aws-efs-csi-driver"
+  service_account_role_arn = aws_iam_role.efs_csi_driver_role.arn
+
+  depends_on = [
+    aws_eks_node_group.infra_nodes
+  ]
+}

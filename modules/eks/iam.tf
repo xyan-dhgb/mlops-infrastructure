@@ -60,3 +60,32 @@ resource "aws_iam_role_policy_attachment" "worker_nodes_registry_policy" {
   role       = aws_iam_role.worker_nodes_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
+
+# IRSA for EFS CSI Driver
+data "aws_iam_policy_document" "efs_csi_driver_assume_role_policy" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.eks.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
+      values   = ["system:serviceaccount:kube-system:efs-csi-controller-sa"]
+    }
+  }
+}
+
+resource "aws_iam_role" "efs_csi_driver_role" {
+  name               = "${var.cluster_name}-efs-csi-driver-role"
+  assume_role_policy = data.aws_iam_policy_document.efs_csi_driver_assume_role_policy.json
+}
+
+resource "aws_iam_role_policy_attachment" "efs_csi_driver_policy" {
+  role       = aws_iam_role.efs_csi_driver_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
+}
