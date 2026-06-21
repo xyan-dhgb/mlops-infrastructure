@@ -15,10 +15,12 @@ ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 # Prefer ML_PIPELINE_IRSA_ROLE_ARN injected by CI (terraform output);
 # fall back to constructing from the Terraform naming convention.
 IRSA_ROLE_ARN="${ML_PIPELINE_IRSA_ROLE_ARN:-arn:aws:iam::${AWS_ACCOUNT_ID}:role/KLTN-Project-DEV-ml-pipeline-irsa-dev}"
+EFS_ID="${EFS_FILE_SYSTEM_ID:-fs-xxxxxxxxxxxxxxxxx}"
 
 HELM_PARAMS_JSON="{\"spec\":{\"source\":{\"helm\":{\"parameters\":[\
 {\"name\":\"global.ecrRegistry\",\"value\":\"${ECR_REGISTRY}\"},\
-{\"name\":\"global.irsaRoleArn\",\"value\":\"${IRSA_ROLE_ARN}\"}\
+{\"name\":\"global.irsaRoleArn\",\"value\":\"${IRSA_ROLE_ARN}\"},\
+{\"name\":\"global.efsFileSystemId\",\"value\":\"${EFS_ID}\"}\
 ]}}}}"
 
 ssm_run 120 "Phase 4: Inject Helm params into isic-ml-pipeline" \
@@ -41,6 +43,7 @@ ssm_run 120 "Phase 4: Inject Helm params into isic-ml-pipeline" \
   \
   "echo '✅ Done. ArgoCD will re-render Helm chart with:'" \
   "echo '     ECR_REGISTRY  = ${ECR_REGISTRY}'" \
-  "echo '     IRSA_ROLE_ARN = ${IRSA_ROLE_ARN}'"
+  "echo '     IRSA_ROLE_ARN = ${IRSA_ROLE_ARN}'" \
+  "echo '     EFS_ID        = ${EFS_ID}'"
 
 echo "🚀 Phase 4: Helm parameter injection completed successfully!"
