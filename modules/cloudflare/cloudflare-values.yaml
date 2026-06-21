@@ -47,3 +47,9 @@ resources:
   limits:
     cpu: 200m
     memory: 256Mi
+
+tolerations:
+  - key: "workload"
+    operator: "Equal"
+    value: "cpu"
+    effect: "NoSchedule"
