@@ -50,7 +50,7 @@ module "eks" {
   cpu_node_max_size       = var.cpu_node_max_size
 }
 
-# Attach Public Key in local machine to AWS 
+# Attach Public Key in local machine to AWS
 resource "aws_key_pair" "bastion_key" {
   key_name   = var.bastion_ssh_key_name
   public_key = var.BASTION_PUBLIC_KEY
@@ -187,3 +187,29 @@ module "kserve_iam_storage_initializer" {
   depends_on = [module.eks]
 }
 
+# EFS
+module "efs" {
+  source = "../../modules/efs"
+
+  project_name               = var.project_name
+  vpc_id                     = module.vpc.vpc_id
+  private_subnet_ids         = module.vpc.private_subnet_ids
+  eks_node_security_group_id = module.security_group.eks_worker_nodes_security_group_id
+
+  depends_on = [module.vpc, module.security_group]
+}
+
+# EFS Storage Class
+resource "kubernetes_storage_class" "efs_sc" {
+  metadata {
+    name = "efs-sc"
+  }
+  storage_provisioner = "efs.csi.aws.com"
+  parameters = {
+    provisioningMode = "efs-ap"
+    fileSystemId     = module.efs.efs_file_system_id
+    directoryPerms   = "700"
+  }
+
+  depends_on = [module.eks, module.efs]
+}
