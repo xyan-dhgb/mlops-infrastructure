@@ -208,6 +208,10 @@ resource "aws_eks_node_group" "infra_nodes" {
     "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
     "k8s.io/cluster-autoscaler/enabled"               = "true"
   }
+
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+  }
 }
 
 # OIDC (OpenID Connect) Provider for IRSA (AWS IAM Roles for Service Accounts)
@@ -277,6 +281,10 @@ resource "aws_eks_node_group" "ml_nodes" {
     "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
     "k8s.io/cluster-autoscaler/enabled"               = "true"
   }
+
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+  }
 }
 
 resource "aws_eks_node_group" "cpu_nodes" {
@@ -326,6 +334,10 @@ resource "aws_eks_node_group" "cpu_nodes" {
     Name                                              = "${local.cluster_name}-cpu-node-group"
     "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
     "k8s.io/cluster-autoscaler/enabled"               = "true"
+  }
+
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
   }
 }
 
