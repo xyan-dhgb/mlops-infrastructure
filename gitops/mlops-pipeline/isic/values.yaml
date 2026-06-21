@@ -3,6 +3,7 @@ global:
   # Injected by CI from secrets.AWS_ACCOUNT_ID
   ecrRegistry: "PATCH_ECR_REGISTRY"
   irsaRoleArn: "PATCH_IRSA_ROLE_ARN"
+  efsFileSystemId: "PATCH_EFS_ID"
   # Single ECR repository - all images use tag format: <image-name>-<timestamp>
   ecrRepository: "kltn-mutimodal-images"
   awsRegion: "ap-southeast-1"
