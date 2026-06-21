@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-autoscaler
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  source:
+    repoURL: https://kubernetes.github.io/autoscaler
+    chart: cluster-autoscaler
+    targetRevision: 9.37.0
+    helm:
+      parameters:
+        - name: autoDiscovery.clusterName
+          value: "PATCH_CLUSTER_NAME" # Injected by phase4
+        - name: "rbac.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+          value: "PATCH_IRSA_ROLE_ARN" # Injected by phase4
+      values: |
+        autoDiscovery:
+          enabled: true
+        rbac:
+          serviceAccount:
+            create: true
+            name: "cluster-autoscaler"
+        awsRegion: "ap-southeast-1"
+        extraArgs:
+          scale-down-unneeded-time: "5m"
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=true

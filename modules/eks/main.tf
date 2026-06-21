@@ -204,7 +204,9 @@ resource "aws_eks_node_group" "infra_nodes" {
   ]
 
   tags = {
-    Name = "${local.cluster_name}-node-group"
+    Name                                              = "${local.cluster_name}-node-group"
+    "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
+    "k8s.io/cluster-autoscaler/enabled"               = "true"
   }
 }
 
@@ -271,7 +273,9 @@ resource "aws_eks_node_group" "ml_nodes" {
   ]
 
   tags = {
-    Name = "${local.cluster_name}-ml-node-group"
+    Name                                              = "${local.cluster_name}-ml-node-group"
+    "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
+    "k8s.io/cluster-autoscaler/enabled"               = "true"
   }
 }
 
@@ -319,7 +323,9 @@ resource "aws_eks_node_group" "cpu_nodes" {
   ]
 
   tags = {
-    Name = "${local.cluster_name}-cpu-node-group"
+    Name                                              = "${local.cluster_name}-cpu-node-group"
+    "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
+    "k8s.io/cluster-autoscaler/enabled"               = "true"
   }
 }
 

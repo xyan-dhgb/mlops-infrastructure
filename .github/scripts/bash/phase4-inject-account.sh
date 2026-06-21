@@ -16,6 +16,7 @@ ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 # fall back to constructing from the Terraform naming convention.
 IRSA_ROLE_ARN="${ML_PIPELINE_IRSA_ROLE_ARN:-arn:aws:iam::${AWS_ACCOUNT_ID}:role/KLTN-Project-DEV-ml-pipeline-irsa-dev}"
 EFS_ID="${EFS_FILE_SYSTEM_ID:-fs-xxxxxxxxxxxxxxxxx}"
+CA_IRSA_ROLE_ARN="${CLUSTER_AUTOSCALER_IRSA_ROLE_ARN:-arn:aws:iam::${AWS_ACCOUNT_ID}:role/KLTN-Project-DEV-cluster-autoscaler-irsa}"
 
 HELM_PARAMS_JSON="{\"spec\":{\"source\":{\"helm\":{\"parameters\":[\
 {\"name\":\"global.ecrRegistry\",\"value\":\"${ECR_REGISTRY}\"},\
@@ -23,7 +24,12 @@ HELM_PARAMS_JSON="{\"spec\":{\"source\":{\"helm\":{\"parameters\":[\
 {\"name\":\"global.efsFileSystemId\",\"value\":\"${EFS_ID}\"}\
 ]}}}}"
 
-ssm_run 120 "Phase 4: Inject Helm params into isic-ml-pipeline" \
+CA_HELM_PARAMS_JSON="{\"spec\":{\"source\":{\"helm\":{\"parameters\":[\
+{\"name\":\"autoDiscovery.clusterName\",\"value\":\"${CLUSTER_NAME}\"},\
+{\"name\":\"rbac.serviceAccount.annotations.eks\\\\.amazonaws\\\\.com/role-arn\",\"value\":\"${CA_IRSA_ROLE_ARN}\"}\
+]}}}}"
+
+ssm_run 120 "Phase 4: Inject Helm params into GitOps Apps" \
   "${AWS_ENV_EXPORT}" \
   \
   "# Configure kubectl for EKS cluster" \
@@ -37,9 +43,19 @@ ssm_run 120 "Phase 4: Inject Helm params into isic-ml-pipeline" \
     -p '${HELM_PARAMS_JSON}'" \
   \
   "# Trigger ArgoCD to re-render the Helm chart with patched values" \
-  "echo '🔄 Triggering ArgoCD refresh...'" \
+  "echo '🔄 Triggering ArgoCD refresh for isic-ml-pipeline...'" \
   "kubectl annotate application isic-ml-pipeline -n argocd \
     argocd.argoproj.io/refresh=normal --overwrite" \
+  \
+  "# Patch ArgoCD Application cluster-autoscaler with real clusterName and IRSA role ARN" \
+  "echo '🔧 Patching ArgoCD Application cluster-autoscaler with Helm parameters...'" \
+  "kubectl patch application cluster-autoscaler -n argocd \
+    --type merge \
+    -p '${CA_HELM_PARAMS_JSON}' || echo '⚠️ cluster-autoscaler app not found, skipping patch'" \
+  \
+  "echo '🔄 Triggering ArgoCD refresh for cluster-autoscaler...'" \
+  "kubectl annotate application cluster-autoscaler -n argocd \
+    argocd.argoproj.io/refresh=normal --overwrite || true" \
   \
   "echo '✅ Done. ArgoCD will re-render Helm chart with:'" \
   "echo '     ECR_REGISTRY  = ${ECR_REGISTRY}'" \
