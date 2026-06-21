@@ -25,6 +25,15 @@ spec:
   archiveLogs: true
   # No global retryStrategy - any failed step fails the workflow immediately.
 
+  volumeClaimTemplates:
+    - metadata:
+        name: shared-pvc
+      spec:
+        accessModes: [ "ReadWriteMany" ]
+        resources:
+          requests:
+            storage: 100Gi
+
   templates:
     # ── DAG ────────────────────────────────────────────────────────────────────
     - name: pipeline
@@ -74,10 +83,16 @@ spec:
       activeDeadlineSeconds: 3600
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.prepareData }}"
-        command: ["python", "download_dataset.py"]
+        command: ["sh", "-c", "python download_dataset.py && dvc add data/raw && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
         resources:
           requests: { cpu: "500m", memory: "1Gi" }
           limits: { cpu: "1", memory: "2Gi" }
@@ -92,10 +107,16 @@ spec:
       activeDeadlineSeconds: 10800
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessImage }}"
-        command: ["python", "preprocess_image.py"]
+        command: ["sh", "-c", "python preprocess_image.py && dvc add data/preprocessed/images && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
         resources:
           requests: { cpu: "6", memory: "12Gi" }
           limits: { cpu: "8", memory: "15Gi" }
@@ -110,10 +131,16 @@ spec:
       activeDeadlineSeconds: 3600
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessCsv }}"
-        command: ["python", "preprocess_csv.py"]
+        command: ["sh", "-c", "python preprocess_csv.py && dvc add data/preprocessed/tabular && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
         resources:
           requests: { cpu: "2", memory: "4Gi" }
           limits: { cpu: "4", memory: "8Gi" }
@@ -129,10 +156,16 @@ spec:
       activeDeadlineSeconds: 3600
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.dataloader }}"
-        command: ["python", "dataloader.py"]
+        command: ["sh", "-c", "python dataloader.py && dvc add data/splits && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
         resources:
           requests: { cpu: "2", memory: "8Gi" }
           limits: { cpu: "4", memory: "16Gi" }
@@ -148,10 +181,16 @@ spec:
       activeDeadlineSeconds: 1800
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}"
-        command: ["python", "build_efficientnetB3.py"]
+        command: ["sh", "-c", "python build_efficientnetB3.py && dvc add data/preprocessed/efficientnetB3_architecture.json data/preprocessed/efficientnetB3_meta.json && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
         resources:
           requests: { cpu: "1", memory: "4Gi" }
           limits: { cpu: "2", memory: "6Gi" }
@@ -167,10 +206,16 @@ spec:
       activeDeadlineSeconds: 900
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildMlp }}"
-        command: ["python", "build_mlp.py"]
+        command: ["sh", "-c", "python build_mlp.py && dvc add data/preprocessed/mlp_architecture.json data/preprocessed/mlp_meta.json && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
         resources:
           requests: { cpu: "500m", memory: "1Gi" }
           limits: { cpu: "1", memory: "2Gi" }
@@ -194,10 +239,15 @@ spec:
             medium: Memory
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.train }}"
-        command: ["python", "train.py"]
+        command: ["sh", "-c", "python train.py && dvc add data/final/best_model_phase1.h5 data/final/best_model_isic2024.h5 data/final/training_history.pkl data/final/model_architecture.json && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         volumeMounts:
           - mountPath: /dev/shm
             name: dshm
+          - name: shared-pvc
+            mountPath: /app/data
         ports:
           - name: metrics # Prometheus scrape target
             containerPort: 8000
@@ -231,10 +281,16 @@ spec:
       activeDeadlineSeconds: 3600
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}"
-        command: ["python", "evaluate.py"]
+        command: ["sh", "-c", "python evaluate.py && dvc add data/final/metrics.json data/final/best_threshold.txt data/final/roc_curve.png data/final/confusion_matrix.png data/final/baseline_profile.json && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
         resources:
           requests: { cpu: "2", memory: "8Gi" }
           limits: { cpu: "4", memory: "12Gi" }
@@ -249,10 +305,16 @@ spec:
       activeDeadlineSeconds: 7200
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.xai }}"
-        command: ["python", "xai.py"]
+        command: ["sh", "-c", "python xai.py && dvc add data/final/xai && dvc push"]
+        env:
+          - name: DVC_CACHE_DIR
+            value: /app/data/.dvc/cache
         envFrom:
           - configMapRef: { name: isic-ml-config }
           - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
         resources:
           requests: { cpu: "2", memory: "8Gi", nvidia.com/gpu: "1" }
           limits: { cpu: "3", memory: "12Gi", nvidia.com/gpu: "1" }
