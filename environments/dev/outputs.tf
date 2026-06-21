@@ -139,3 +139,7 @@ output "kserve_storage_irsa_role_name" {
   value       = module.kserve_iam_storage_initializer.kserve_storage_irsa_role_name
 }
 
+output "cluster_autoscaler_irsa_role_arn" {
+  description = "IAM role ARN for Cluster Autoscaler (IRSA)"
+  value       = module.cluster_autoscaler_iam.cluster_autoscaler_role_arn
+}

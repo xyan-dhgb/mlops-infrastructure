@@ -199,3 +199,15 @@ module "efs" {
   depends_on = [module.vpc, module.security_group]
 }
 
+# Cluster Autoscaler IAM
+module "cluster_autoscaler_iam" {
+  source = "../../modules/cluster-autoscaler/iam"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  eks_oidc_provider_arn = module.eks.cluster_oidc_provider_arn
+  eks_oidc_provider_url = module.eks.cluster_oidc_issuer_url
+
+  depends_on = [module.eks]
+}
