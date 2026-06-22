@@ -168,8 +168,8 @@ spec:
           - name: shared-pvc
             mountPath: /app/data
         resources:
-          requests: { cpu: "2", memory: "8Gi" }
-          limits: { cpu: "4", memory: "16Gi" }
+          requests: { cpu: "4", memory: "24Gi" }
+          limits: { cpu: "6", memory: "32Gi" }
       nodeSelector:
         role: cpu-ml
       tolerations:
