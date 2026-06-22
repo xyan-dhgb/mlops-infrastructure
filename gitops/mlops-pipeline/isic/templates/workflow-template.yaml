@@ -132,7 +132,7 @@ spec:
       activeDeadlineSeconds: 3600
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessCsv }}"
-        command: ["sh", "-c", "python preprocess_csv.py && dvc add data/preprocessed/tabular && dvc push"]
+        command: ["sh", "-c", "python preprocess_csv.py && dvc add data/preprocessed && dvc push"]
         env:
           - name: DVC_CACHE_DIR
             value: /app/data/.dvc/cache
@@ -157,7 +157,7 @@ spec:
       activeDeadlineSeconds: 3600
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.dataloader }}"
-        command: ["sh", "-c", "python dataloader.py && dvc add data/splits && dvc push"]
+        command: ["sh", "-c", "python dataloader.py && dvc add data/splits data/features && dvc push"]
         env:
           - name: DVC_CACHE_DIR
             value: /app/data/.dvc/cache
