@@ -132,7 +132,7 @@ spec:
       activeDeadlineSeconds: 3600
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessCsv }}"
-        command: ["sh", "-c", "python preprocess_csv.py && dvc add data/preprocessed && dvc push"]
+        command: ["sh", "-c", "python preprocess_csv.py && dvc add data/preprocessed/metadata_clean.csv data/preprocessed/encoders.pkl && dvc push"]
         env:
           - name: DVC_CACHE_DIR
             value: /app/data/.dvc/cache
@@ -182,7 +182,7 @@ spec:
       activeDeadlineSeconds: 1800
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}"
-        command: ["sh", "-c", "python build_efficientnetB3.py && dvc add data/preprocessed/efficientnetB3_architecture.json data/preprocessed/efficientnetB3_meta.json && dvc push"]
+        command: ["sh", "-c", "python build_efficientnetB3.py && flock /app/data/.dvc/tmp/pipeline.lock sh -c 'dvc add data/preprocessed/efficientnetB3_architecture.json data/preprocessed/efficientnetB3_meta.json && dvc push'"]
         env:
           - name: DVC_CACHE_DIR
             value: /app/data/.dvc/cache
@@ -207,7 +207,7 @@ spec:
       activeDeadlineSeconds: 900
       container:
         image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildMlp }}"
-        command: ["sh", "-c", "python build_mlp.py && dvc add data/preprocessed/mlp_architecture.json data/preprocessed/mlp_meta.json && dvc push"]
+        command: ["sh", "-c", "python build_mlp.py && flock /app/data/.dvc/tmp/pipeline.lock sh -c 'dvc add data/preprocessed/mlp_architecture.json data/preprocessed/mlp_meta.json && dvc push'"]
         env:
           - name: DVC_CACHE_DIR
             value: /app/data/.dvc/cache
