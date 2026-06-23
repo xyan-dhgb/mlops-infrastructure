@@ -25,6 +25,11 @@ variable "eks_node_security_group_id" {
   type        = string
 }
 
+variable "bastion_security_group_id" {
+  description = "Security group ID of the Bastion Host (allows SSH tunnel / pgAdmin access to RDS)"
+  type        = string
+}
+
 variable "identifier_rds_postgresql" {
   description = "Identifier for RDS PostgreSQL"
   type        = string

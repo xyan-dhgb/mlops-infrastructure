@@ -30,6 +30,11 @@ variable "eks_node_security_group_id" {
   description = "Security group ID of EKS worker nodes (for RDS ingress rule)"
 }
 
+variable "bastion_security_group_id" {
+  type        = string
+  description = "Security group ID of Bastion Host (allows SSH tunnel / pgAdmin access to RDS)"
+}
+
 variable "eks_cluster_name" {
   type        = string
   description = "EKS cluster name"
