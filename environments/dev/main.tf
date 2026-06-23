@@ -126,12 +126,13 @@ module "mlflow" {
 
   eks_cluster_name           = module.eks.cluster_name
   eks_node_security_group_id = module.security_group.eks_worker_nodes_security_group_id
+  bastion_security_group_id  = module.bastion.bastion_security_group_id
   eks_oidc_provider_arn      = module.eks.cluster_oidc_provider_arn
   eks_oidc_provider_url      = module.eks.cluster_oidc_issuer_url
 
   mlflow_db_password = var.MLFLOW_DB_PASSWORD
 
-  depends_on = [module.eks]
+  depends_on = [module.eks, module.bastion]
 }
 
 module "monitoring" {

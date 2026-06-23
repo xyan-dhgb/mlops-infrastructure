@@ -15,6 +15,7 @@ module "rds_postgresql" {
 
   subnet_ids                 = var.private_subnet_ids
   eks_node_security_group_id = var.eks_node_security_group_id
+  bastion_security_group_id  = var.bastion_security_group_id
 
   db_password = var.mlflow_db_password
 }

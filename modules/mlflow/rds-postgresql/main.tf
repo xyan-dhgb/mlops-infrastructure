@@ -21,6 +21,14 @@ resource "aws_security_group" "mlflow_rds_postgresql" {
     description     = "PostgreSQL from EKS nodes"
   }
 
+  ingress {
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [var.bastion_security_group_id]
+    description     = "PostgreSQL from Bastion Host (SSH tunnel / pgAdmin)"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
