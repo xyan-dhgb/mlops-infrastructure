@@ -57,10 +57,16 @@ class _CompatInputLayer(keras.layers.InputLayer):
             except Exception:
                 pass
         if shape is not None:
+            # Keras 3.x may store batch_shape with a leading concrete batch size
+            # e.g. (1, None, 224, 224, 3) → tf_keras expects (None, 224, 224, 3).
+            # Strip the leading dim if it is a concrete integer (not None).
+            if isinstance(shape, (list, tuple)) and len(shape) >= 2 and shape[0] is not None:
+                shape = tuple(shape[1:])
             config["batch_input_shape"] = shape
-            
+
         config.pop("optional", None)
         return super().from_config(config)
+
 
 # Shim 2: Stub for DTypePolicy
 class _DTypePolicy:
