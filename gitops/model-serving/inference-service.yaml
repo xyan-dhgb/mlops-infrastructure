@@ -31,7 +31,8 @@ spec:
             value: "s3://kltn-isic-2024-colab/preprocessed"
 
         ports:
-          - containerPort: 8080
+          - name: http
+            containerPort: 8080
             protocol: TCP
 
         resources:
