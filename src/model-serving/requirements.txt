@@ -2,8 +2,6 @@
 kserve==0.13.1
 
 # Deep Learning
-# tensorflow-cpu: dùng CPU inference (không cần GPU khi serving)
-# tf-keras==2.15.0: Keras 2.x legacy API - BẮT BUỘC để load model .h5 train bằng TF 2.x
 tensorflow-cpu==2.15.0
 tf-keras==2.15.0
 
@@ -15,11 +13,11 @@ scipy>=1.11          # runtime dependency of scikit-learn
 joblib>=1.3
 
 # Image Processing
-# Pillow: dùng Image.open, ImageEnhance.Contrast (khớp preprocess_image.py)
-# opencv-python-headless: dùng cv2.cvtColor, cv2.createCLAHE, cv2.GaussianBlur
 Pillow>=10.0
 opencv-python-headless>=4.8
 
 # Model Artifact Loading
-# h5py: đọc file .h5 (best_model_isic2024.h5)
 h5py>=3.9
+
+# Monitorings
+prometheus-client>=0.20
