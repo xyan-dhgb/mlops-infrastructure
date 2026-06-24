@@ -161,6 +161,21 @@ def _patched_model_from_config(cls, config, custom_objects=None):
     
     if "layers" in config:
         for layer_config in config["layers"]:
+            # Fix InputLayer 5D shape directly in model config
+            if layer_config.get("class_name") == "InputLayer":
+                l_cfg = layer_config.get("config", {})
+                shape = l_cfg.pop("batch_shape", None) or l_cfg.pop("shape", None)
+                if isinstance(shape, str) and shape.startswith("(") and shape.endswith(")"):
+                    try:
+                        shape = eval(shape, {"None": None})
+                    except Exception:
+                        pass
+                if shape is not None:
+                    if isinstance(shape, (list, tuple)) and len(shape) >= 2 and shape[0] is not None:
+                        shape = tuple(shape[1:])
+                    l_cfg["batch_input_shape"] = shape
+                l_cfg.pop("optional", None)
+
             inbound_nodes = layer_config.get("inbound_nodes", [])
             new_inbound = []
             for node in inbound_nodes:
