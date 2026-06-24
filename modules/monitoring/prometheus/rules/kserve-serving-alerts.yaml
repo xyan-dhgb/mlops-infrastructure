@@ -1,0 +1,165 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kserve-serving-alerts
+  namespace: prometheus
+  labels:
+    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus-stack
+spec:
+  groups:
+    # ── Model Availability ───────────────────────────────────────────────────
+    - name: kserve-model-availability
+      rules:
+        # Pod không ready > 5 phút - model serving down
+        - alert: KServeModelDown
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="model-serving",
+              deployment=~"skin-prediction-predictor.*"
+            } == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: mlops
+          annotations:
+            summary: "KServe model serving down"
+            description: "Deployment {{ $labels.deployment }} không có replica nào available trong 5 phút. Model không thể phục vụ request."
+
+        # Pod restart nhiều lần trong 15 phút - container crash loop
+        - alert: KServeModelCrashLooping
+          expr: |
+            sum by (namespace, pod) (
+              increase(kube_pod_container_status_restarts_total{
+                namespace="model-serving"
+              }[15m])
+            ) > 3
+          for: 5m
+          labels:
+            severity: critical
+            team: mlops
+          annotations:
+            summary: "KServe model pod crash looping"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} restart {{ $value | humanize }} lần trong 15 phút qua."
+
+    # ── Latency ─────────────────────────────────────────────────────────────
+    - name: kserve-latency
+      rules:
+        # p95 latency > 3s - request quá chậm (model nặng hoặc CPU throttle)
+        - alert: KServeHighLatencyP95
+          expr: |
+            histogram_quantile(0.95,
+              rate(request_duration_milliseconds_bucket{
+                namespace="model-serving"
+              }[5m])
+            ) > 3000
+          for: 5m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "KServe inference latency p95 > 3s"
+            description: "p95 latency = {{ $value | humanize }}ms. Kiểm tra CPU throttling hoặc model warm-up."
+
+        # p99 latency > 10s - severe degradation
+        - alert: KServeHighLatencyP99
+          expr: |
+            histogram_quantile(0.99,
+              rate(request_duration_milliseconds_bucket{
+                namespace="model-serving"
+              }[5m])
+            ) > 10000
+          for: 5m
+          labels:
+            severity: critical
+            team: mlops
+          annotations:
+            summary: "KServe inference latency p99 > 10s"
+            description: "p99 latency = {{ $value | humanize }}ms. Serving đang bị nghẽn nghiêm trọng."
+
+    # ── Error Rate ───────────────────────────────────────────────────────────
+    - name: kserve-error-rate
+      rules:
+        # Error rate > 5% trong 5 phút - preprocessing hoặc model crash
+        - alert: KServeHighErrorRate
+          expr: |
+            (
+              rate(request_count{
+                namespace="model-serving",
+                response_code=~"5.."
+              }[5m])
+              /
+              rate(request_count{
+                namespace="model-serving"
+              }[5m])
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            team: mlops
+          annotations:
+            summary: "KServe error rate > 5%"
+            description: "{{ $value | humanizePercentage }} request trả về 5xx trong 5 phút. Kiểm tra logs serving pod."
+
+    # ── Prediction Distribution ──────────────────────────────────────────────
+    - name: kserve-prediction-anomaly
+      rules:
+        # Malignant rate tăng đột biến > 80% trong 10 phút - anomaly detection
+        - alert: KServeMalignantRateSpike
+          expr: |
+            (
+              rate(skin_prediction_label_total{label="Malignant"}[10m])
+              /
+              rate(skin_prediction_label_total[10m])
+            ) > 0.80
+          for: 10m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "Tỉ lệ dự đoán Malignant > 80% trong 10 phút"
+            description: "{{ $value | humanizePercentage }} request được dự đoán là Malignant. Kiểm tra data distribution hoặc model drift."
+
+    # ── Resource ─────────────────────────────────────────────────────────────
+    - name: kserve-resource
+      rules:
+        # CPU throttling > 50% - model serving bị giới hạn CPU
+        - alert: KServeHighCPUThrottling
+          expr: |
+            rate(container_cpu_cfs_throttled_seconds_total{
+              namespace="model-serving",
+              container="kserve-container"
+            }[5m])
+            /
+            rate(container_cpu_cfs_periods_total{
+              namespace="model-serving",
+              container="kserve-container"
+            }[5m]) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "KServe container CPU throttled > 50%"
+            description: "Container kserve-container bị CPU throttle {{ $value | humanizePercentage }}. Cân nhắc tăng CPU limit."
+
+        # Memory gần limit - nguy cơ OOM kill
+        - alert: KServeMemoryNearLimit
+          expr: |
+            container_memory_working_set_bytes{
+              namespace="model-serving",
+              container="kserve-container"
+            }
+            /
+            kube_pod_container_resource_limits{
+              namespace="model-serving",
+              container="kserve-container",
+              resource="memory"
+            } > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "KServe memory usage > 85% of limit"
+            description: "Memory = {{ $value | humanizePercentage }} của limit. Nguy cơ OOM kill nếu tiếp tục tăng."
