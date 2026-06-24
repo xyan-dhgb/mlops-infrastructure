@@ -39,6 +39,7 @@ from PIL import Image, ImageDraw, ImageFont
 import tf_keras as keras   # Keras 2.x legacy — tương thích với model .h5 train bằng TF 2.x
 import tensorflow as tf
 from kserve import Model, ModelServer
+from prometheus_client import Counter, Histogram
 
 
 # ── Compatibility shims ──────────────────────────────────────────────────────
@@ -193,6 +194,30 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
+
+# ── Custom Prometheus Metrics ────────────────────────────────────────────────
+# KServe ModelServer đã expose /metrics với request_count, request_duration_ms.
+# Chỉ thêm các metrics về prediction outcome mà KServe không tự track.
+
+_PRED_LABEL_TOTAL = Counter(
+    "skin_prediction_label_total",
+    "Total predictions grouped by outcome label (Malignant / Benign)",
+    ["model", "label"],
+)
+
+_PRED_PROBABILITY = Histogram(
+    "skin_prediction_probability",
+    "Distribution of raw probability scores from the model",
+    ["model", "label"],
+    buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+)
+
+_GRADCAM_TOTAL = Counter(
+    "skin_prediction_gradcam_total",
+    "Grad-CAM generation outcomes (success / skipped / failed)",
+    ["model", "status"],
+)
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Constants – same as data_preprocessing.py in mlops-model
 TARGET_SIZE    = (224, 224)
@@ -494,12 +519,15 @@ class SkinPredictionModel(Model):
 
         # Grad-CAM (optional, controlled by ENABLE_XAI env)
         gradcam_b64 = None
+        gradcam_status = "skipped"
         if self.grad_model is not None:
             try:
                 cam = self._compute_gradcam(data["image"], data["tabular"])
                 gradcam_b64 = self._gradcam_to_base64(cam, data["image"][0], label, prob)
+                gradcam_status = "success"
             except Exception as e:
                 logger.warning("[predict] Grad-CAM failed: %s", e)
+                gradcam_status = "failed"
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -507,6 +535,12 @@ class SkinPredictionModel(Model):
             "[predict] %s  prob=%.4f  threshold=%.2f  xai=%s  ms=%.1f",
             label, prob, self.threshold, gradcam_b64 is not None, elapsed_ms,
         )
+
+        # ── Record custom Prometheus metrics ──────────────────────────────────
+        _PRED_LABEL_TOTAL.labels(model=self.name, label=label).inc()
+        _PRED_PROBABILITY.labels(model=self.name, label=label).observe(prob)
+        _GRADCAM_TOTAL.labels(model=self.name, status=gradcam_status).inc()
+        # ─────────────────────────────────────────────────────────────────────
 
         result = {
             "label":       label,
