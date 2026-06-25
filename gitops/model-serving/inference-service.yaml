@@ -22,13 +22,20 @@ spec:
 
         env:
           # STORAGE_URI triggers KServe to auto-inject storage-initializer init container.
-          # The init container downloads all files from this S3 prefix into /mnt/models:
-          #   s3://.../preprocessed/best_model_isic2024.h5  → /mnt/models/
-          #   s3://.../preprocessed/encoders.pkl            → /mnt/models/
-          #   s3://.../preprocessed/best_threshold.txt      → /mnt/models/
-          # serving.py loads artifacts from /mnt/models (see MODEL_PATH, PREPROCESSORS_PATH)
+          # Downloads all files from this S3 prefix into /mnt/models (preserving subdir structure):
+          #   s3://kltn-isic-2024-colab/final/best_model_isic2024.h5   → /mnt/models/final/
+          #   s3://kltn-isic-2024-colab/preprocessed/encoders.pkl      → /mnt/models/preprocessed/
+          #   s3://kltn-isic-2024-colab/preprocessed/best_threshold.txt→ /mnt/models/preprocessed/
           - name: STORAGE_URI
-            value: "s3://kltn-isic-2024-colab/preprocessed"
+            value: "s3://kltn-isic-2024-colab"
+
+          # Explicit artifact paths inside /mnt/models (must match S3 subdirectory structure)
+          - name: MODEL_PATH
+            value: "/mnt/models/final/best_model_isic2024.h5"
+          - name: PREPROCESSORS_PATH
+            value: "/mnt/models/preprocessed/encoders.pkl"
+          - name: THRESHOLD_PATH
+            value: "/mnt/models/preprocessed/best_threshold.txt"
 
         ports:
           - name: http
