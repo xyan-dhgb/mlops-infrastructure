@@ -146,7 +146,7 @@ def _fix_input_layer_config(layer_entry: dict) -> None:
     if "batch_shape" in cfg and "batch_input_shape" in cfg:
         cfg.pop("batch_shape")
 
-    for key in ["batch_input_shape", "batch_shape", "target_shape"]:
+    for key in ["batch_input_shape", "batch_shape", "shape", "target_shape"]:
         if key not in cfg:
             continue
         shape = cfg[key]
@@ -191,6 +191,22 @@ def _fix_all_input_layers(config: dict) -> None:
 @classmethod
 def _patched_layer_from_config(cls, config):
     config.pop("quantization_config", None)
+    
+    # Strip batch dimensions from shape keys for ALL layers (not just InputLayer)
+    if "batch_shape" in config and "batch_input_shape" in config:
+        config.pop("batch_shape")
+        
+    for key in ["batch_input_shape", "batch_shape", "shape", "target_shape"]:
+        if key in config:
+            shape = config[key]
+            if isinstance(shape, str):
+                try:
+                    shape = eval(shape, {"None": None, "null": None})
+                except Exception:
+                    pass
+            if isinstance(shape, (list, tuple)) and len(shape) >= 2 and shape[0] is not None and isinstance(shape[0], int):
+                config[key] = list(shape[1:])
+                
     _fix_stringified_shapes(config)
     return _original_layer_from_config.__func__(cls, config)
 
@@ -260,14 +276,22 @@ def _patched_model_from_config(cls, config, custom_objects=None):
                 # ── Keras 3.x dict format ──
                 k3 = _convert_keras3_node(node)
                 if k3 is not None:
-                    new_inbound.append(k3)
+                    # _convert_keras3_node returns a list of connections.
+                    # If it's just 1 connection, don't wrap it in another list.
+                    if len(k3) == 1:
+                        new_inbound.append(k3[0])
+                    else:
+                        new_inbound.append(k3)
                 # ── Keras 3.x bare-string shortcut ──
                 elif isinstance(node, str):
-                    new_inbound.append([[node, 0, 0, {}]])
-                # ── Keras 2.x list format (may need wrapping) ──
+                    new_inbound.append([node, 0, 0, {}])
+                # ── Keras 2.x / 3.x list format ──
                 elif isinstance(node, list):
                     if len(node) > 0 and isinstance(node[0], str):
-                        new_inbound.append([node])
+                        new_inbound.append(node)
+                    elif len(node) == 1 and isinstance(node[0], (list, tuple)) and len(node[0]) > 0 and isinstance(node[0][0], str):
+                        # Keras 3 saves single inputs as [ ["layer", 0, 0, {}] ] -> unwrap!
+                        new_inbound.append(node[0])
                     else:
                         new_inbound.append(node)
                 else:
