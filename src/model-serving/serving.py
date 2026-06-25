@@ -140,11 +140,16 @@ def _fix_input_layer_config(layer_entry: dict) -> None:
     cfg = layer_entry.get("config", {})
 
     # ── 1. Fix batch_shape ──────────────────────────────────────────────────
-    for key in ("batch_shape", "batch_input_shape"):
-        shape = cfg.get(key)
-        if shape is None:
+    # Keras 3 quirk: it might save BOTH batch_input_shape and batch_shape.
+    # We must ensure they are both stripped of the leading concrete batch dimension,
+    # or just remove batch_shape so tf_keras doesn't get confused and overwrite.
+    if "batch_shape" in cfg and "batch_input_shape" in cfg:
+        cfg.pop("batch_shape")
+
+    for key in ["batch_input_shape", "batch_shape", "target_shape"]:
+        if key not in cfg:
             continue
-        # Xử lý dạng string (ví dụ: "(1, None, 224, 224, 3)")
+        shape = cfg[key]
         if isinstance(shape, str):
             try:
                 shape = eval(shape, {"None": None})
@@ -157,7 +162,7 @@ def _fix_input_layer_config(layer_entry: dict) -> None:
         if len(shape) >= 2 and shape[0] is not None and isinstance(shape[0], int):
             shape = shape[1:]
         cfg[key] = shape
-        break  # chỉ cần xử lý key đầu tiên tìm thấy
+        # Do NOT break here, we must fix ALL shape keys present in the config!
 
     # ── 2. Fix dtype ────────────────────────────────────────────────────────
     dtype = cfg.get("dtype")
@@ -272,12 +277,14 @@ def _patched_model_from_config(cls, config, custom_objects=None):
 
     try:
         return _original_model_from_config.__func__(cls, config, custom_objects)
-    except AttributeError as e:
-        if "'str' object has no attribute 'as_list'" in str(e):
-            _, _, tb = sys.exc_info()
-            while tb.tb_next:
-                tb = tb.tb_next
-            logger.error("CRASH in from_config. Locals: %s", tb.tb_frame.f_locals)
+    except Exception as e:
+        import traceback
+        _dbg.error("CRASH in from_config. Error: %s", str(e))
+        
+        # In thêm chi tiết inbound nodes của các layer đầu để xem tensor shape bị sai ở đâu
+        for layer in config.get("layers", []):
+            if layer.get("name") in ["image_input", "rescaling", "normalization", "stem_conv_pad"] or "efficientnet" in layer.get("name", ""):
+                _dbg.error("Layer config for %s: %s", layer.get("name"), layer)
         raise e
 
 keras.models.Model.from_config = _patched_model_from_config
