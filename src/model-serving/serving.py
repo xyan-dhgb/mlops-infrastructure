@@ -196,7 +196,7 @@ def _patched_layer_from_config(cls, config):
     if "batch_shape" in config and "batch_input_shape" in config:
         config.pop("batch_shape")
         
-    for key in ["batch_input_shape", "batch_shape", "shape", "target_shape"]:
+    for key in ["batch_input_shape", "batch_shape"]:
         if key in config:
             shape = config[key]
             if isinstance(shape, str):
