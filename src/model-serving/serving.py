@@ -228,16 +228,16 @@ def _patched_model_from_config(cls, config, custom_objects=None):
     _fix_stringified_shapes(config)
     _fix_all_input_layers(config)
 
-    # ── DEBUG: dump ALL InputLayer configs (top-level + nested sub-models) ──
+    # ── DEBUG: log every call to _patched_model_from_config (including sub-models) ──
     import logging as _logging
     _dbg = _logging.getLogger("kserve-serving.shim")
+    _dbg.warning("[SHIM DEBUG] from_config called for cls=%s", cls.__name__)
 
     def _dump_input_layers(cfg, depth=0):
         prefix = "  " * depth
         for _lc in cfg.get("layers", []):
             if _lc.get("class_name") == "InputLayer":
                 _dbg.warning("%s[SHIM DEBUG depth=%d] InputLayer AFTER fix: %s", prefix, depth, _lc.get("config"))
-            # Recurse into nested Functional sub-models
             nested_cfg = _lc.get("config", {})
             if "layers" in nested_cfg:
                 _dbg.warning("%s[SHIM DEBUG] Entering sub-model: class=%s name=%s",
