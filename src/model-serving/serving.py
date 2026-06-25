@@ -65,6 +65,13 @@ class _CompatInputLayer(keras.layers.InputLayer):
             config["batch_input_shape"] = shape
 
         config.pop("optional", None)
+
+        # Safety-net: dtype dạng DTypePolicy dict (phòng khi _fix_all_input_layers
+        # chưa chạy qua code path này)
+        dtype = config.get("dtype")
+        if isinstance(dtype, dict):
+            config["dtype"] = dtype.get("config", {}).get("name", "float32")
+
         return super().from_config(config)
 
 
@@ -93,7 +100,7 @@ def _fix_stringified_shapes(obj):
     if isinstance(obj, dict):
         for k, v in list(obj.items()):
             if isinstance(v, str) and (
-                (v.startswith("(") and v.endswith(")")) or 
+                (v.startswith("(") and v.endswith(")")) or
                 (v.startswith("[") and v.endswith("]"))
             ):
                 try:
@@ -105,7 +112,7 @@ def _fix_stringified_shapes(obj):
     elif isinstance(obj, list):
         for i, v in enumerate(obj):
             if isinstance(v, str) and (
-                (v.startswith("(") and v.endswith(")")) or 
+                (v.startswith("(") and v.endswith(")")) or
                 (v.startswith("[") and v.endswith("]"))
             ):
                 try:
@@ -114,6 +121,67 @@ def _fix_stringified_shapes(obj):
                     pass
             else:
                 _fix_stringified_shapes(v)
+
+def _fix_input_layer_config(layer_entry: dict) -> None:
+    """
+    Fix một InputLayer config dict in-place (Keras 3 → tf_keras compat):
+
+    1. Strip leading concrete batch dim khỏi batch_shape.
+       Keras 3 đôi khi lưu batch size thực (ví dụ: 1) thay vì None:
+         [1, None, 224, 224, 3]  →  [None, 224, 224, 3]
+         [1, None, 38]           →  [None, 38]
+       tf_keras (Keras 2.x) kỳ vọng None ở chiều batch →
+       nếu để nguyên sẽ gây lỗi ndim=5 / ndim=4.
+
+    2. Chuẩn hoá dtype: Keras 3 có thể lưu dạng DTypePolicy dict
+       {"class_name": "DTypePolicy", "config": {"name": "float32"}}
+       → chuyển về string "float32" để tf_keras InputLayer chấp nhận.
+    """
+    cfg = layer_entry.get("config", {})
+
+    # ── 1. Fix batch_shape ──────────────────────────────────────────────────
+    for key in ("batch_shape", "batch_input_shape"):
+        shape = cfg.get(key)
+        if shape is None:
+            continue
+        # Xử lý dạng string (ví dụ: "(1, None, 224, 224, 3)")
+        if isinstance(shape, str):
+            try:
+                shape = eval(shape, {"None": None})
+            except Exception:
+                continue
+        if not isinstance(shape, (list, tuple)):
+            continue
+        shape = list(shape)
+        # Strip leading concrete int (không phải None) — Keras 3 quirk
+        if len(shape) >= 2 and shape[0] is not None and isinstance(shape[0], int):
+            shape = shape[1:]
+        cfg[key] = shape
+        break  # chỉ cần xử lý key đầu tiên tìm thấy
+
+    # ── 2. Fix dtype ────────────────────────────────────────────────────────
+    dtype = cfg.get("dtype")
+    if isinstance(dtype, dict):
+        # {"class_name": "DTypePolicy", "config": {"name": "float32"}} → "float32"
+        cfg["dtype"] = dtype.get("config", {}).get("name", "float32")
+
+
+def _fix_all_input_layers(config: dict) -> None:
+    """
+    Đệ quy fix tất cả InputLayer config trong cây model config.
+    Xử lý cả trường hợp EfficientNetB3 (hoặc model khác) được nhúng
+    làm sub-model (nested Functional model).
+    """
+    if not isinstance(config, dict):
+        return
+    for layer_entry in config.get("layers", []):
+        if layer_entry.get("class_name") == "InputLayer":
+            _fix_input_layer_config(layer_entry)
+        # Đệ quy vào config của sub-model (nếu có "layers" bên trong)
+        nested = layer_entry.get("config", {})
+        if "layers" in nested:
+            _fix_all_input_layers(nested)
+
 
 @classmethod
 def _patched_layer_from_config(cls, config):
@@ -158,24 +226,18 @@ def _convert_keras3_node(node):
 @classmethod
 def _patched_model_from_config(cls, config, custom_objects=None):
     _fix_stringified_shapes(config)
-    
+    _fix_all_input_layers(config)
+
+    # ── DEBUG: dump all InputLayer configs so we can see what shape is stored ──
+    import logging as _logging
+    _dbg = _logging.getLogger("kserve-serving.shim")
+    for _lc in config.get("layers", []):
+        if _lc.get("class_name") == "InputLayer":
+            _dbg.warning("[SHIM DEBUG] InputLayer config AFTER fix: %s", _lc.get("config"))
+    # ─────────────────────────────────────────────────────────────────────────
+
     if "layers" in config:
         for layer_config in config["layers"]:
-            # Fix InputLayer 5D shape directly in model config
-            if layer_config.get("class_name") == "InputLayer":
-                l_cfg = layer_config.get("config", {})
-                shape = l_cfg.pop("batch_shape", None) or l_cfg.pop("shape", None)
-                if isinstance(shape, str) and shape.startswith("(") and shape.endswith(")"):
-                    try:
-                        shape = eval(shape, {"None": None})
-                    except Exception:
-                        pass
-                if shape is not None:
-                    if isinstance(shape, (list, tuple)) and len(shape) >= 2 and shape[0] is not None:
-                        shape = tuple(shape[1:])
-                    l_cfg["batch_input_shape"] = shape
-                l_cfg.pop("optional", None)
-
             inbound_nodes = layer_config.get("inbound_nodes", [])
             new_inbound = []
             for node in inbound_nodes:
@@ -196,7 +258,7 @@ def _patched_model_from_config(cls, config, custom_objects=None):
                     new_inbound.append(node)
             if new_inbound:
                 layer_config["inbound_nodes"] = new_inbound
-                
+
     try:
         return _original_model_from_config.__func__(cls, config, custom_objects)
     except AttributeError as e:
