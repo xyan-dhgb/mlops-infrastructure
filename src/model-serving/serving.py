@@ -373,8 +373,10 @@ def _dummy_focal_loss(y_true, y_pred):
 # Image helpers
 def _preprocess_image(img_bytes: bytes) -> np.ndarray:
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    img = img.resize(TARGET_SIZE, Image.Resampling.LANCZOS)
+    # Dùng OpenCV resize INTER_AREA — khớp training pipeline (preprocess_image.py)
+    # KHÔNG dùng PIL LANCZOS vì tạo pixel values khác, gây lệch probability
     uint8 = np.array(img, dtype=np.uint8)
+    uint8 = cv2.resize(uint8, TARGET_SIZE, interpolation=cv2.INTER_AREA)
 
     # CLAHE on L channel (LAB color space)
     lab = cv2.cvtColor(uint8, cv2.COLOR_RGB2LAB)
