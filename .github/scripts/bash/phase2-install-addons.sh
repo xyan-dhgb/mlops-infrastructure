@@ -477,15 +477,28 @@ else
     echo "⚠️  prometheus release in '${PROM_STATUS}' — uninstalling for clean slate..."
     helm uninstall prometheus -n prometheus --wait --no-hooks 2>/dev/null || true
     sleep 10
-    # Ensure Prometheus Operator CRDs exist after uninstall — helm uninstall may remove them
-    if ! kubectl get crd prometheuses.monitoring.coreos.com >/dev/null 2>&1; then
-      echo "📦 Re-applying kube-prometheus-stack CRDs..."
-      for crd in alertmanagerconfigs alertmanagers podmonitors probes prometheusagents prometheuses prometheusrules scrapeconfigs servicemonitors thanosrulers; do
-        kubectl apply --server-side --force-conflicts -f \
-          "https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-${crd}.yaml" 2>/dev/null || true
-      done
-      echo "✅ CRDs re-applied"
-    fi
+  fi
+
+  # FIX 7: Always ensure CRDs exist before running --skip-crds.
+  # The old code only re-applied CRDs when PROM_STATUS was pending/failed.
+  # On a first-time install (empty status) the CRDs don't exist yet, so
+  # --skip-crds causes helm to fail with "no matches for kind" errors for
+  # Alertmanager, Prometheus, PrometheusRule, ServiceMonitor, etc.
+  if ! kubectl get crd prometheuses.monitoring.coreos.com >/dev/null 2>&1; then
+    echo "📦 Prometheus Operator CRDs not found — applying kube-prometheus-stack CRDs before install..."
+    for crd in alertmanagerconfigs alertmanagers podmonitors probes prometheusagents prometheuses prometheusrules scrapeconfigs servicemonitors thanosrulers; do
+      kubectl apply --server-side --force-conflicts -f \
+        "https://raw.githubusercontent.com/prometheus-community/helm-charts/kube-prometheus-stack-56.6.2/charts/kube-prometheus-stack/charts/crds/crds/crd-${crd}.yaml" 2>/dev/null || true
+    done
+    echo "⏳ Waiting for CRDs to become established..."
+    kubectl wait --for=condition=Established --timeout=60s \
+      crd/prometheuses.monitoring.coreos.com \
+      crd/prometheusrules.monitoring.coreos.com \
+      crd/alertmanagers.monitoring.coreos.com \
+      crd/servicemonitors.monitoring.coreos.com 2>/dev/null || true
+    echo "✅ Prometheus Operator CRDs applied"
+  else
+    echo "✅ Prometheus Operator CRDs already present — skipping CRD apply"
   fi
 
   # FIX 1: Remove ALL stale prometheus/monitoring webhook configurations by pattern.
