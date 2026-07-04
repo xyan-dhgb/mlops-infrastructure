@@ -7,9 +7,11 @@ set -euo pipefail
 source "$(dirname "$0")/ssm-run.sh"
 
 # Shortcut: export AWS credentials into the remote shell for reuse.
+# Also fix ownership of dirs created by root (SSM Agent runs as root, not ubuntu).
 AWS_ENV_EXPORT="export HOME=/home/ubuntu AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' \
 AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' \
-AWS_DEFAULT_REGION='${AWS_REGION}'"
+AWS_DEFAULT_REGION='${AWS_REGION}' && \
+chown -R ubuntu:ubuntu /home/ubuntu/.kube /home/ubuntu/.aws /home/ubuntu/helm-workspace 2>/dev/null || true"
 
 if [ -z "${ARGOCD_UI_SECRET:-}" ]; then
   echo "ERROR: GitHub secret ARGOCD_UI_SECRET is required for the ArgoCD admin password"
@@ -206,9 +208,14 @@ ssm_run 120 "🔗 Upload Helm values" \
 
 
 # Configure kubectl on the bastion.
+# SSM Agent runs as root — ensure .kube dir exists and is owned by ubuntu
+# so that aws eks update-kubeconfig (running as root with HOME=/home/ubuntu)
+# can write the config and ubuntu can read it later.
 ssm_run 120 "📐 Configure kubectl" \
   "${AWS_ENV_EXPORT}" \
+  "mkdir -p /home/ubuntu/.kube && chown -R ubuntu:ubuntu /home/ubuntu/.kube" \
   "timeout 30 aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}" \
+  "chown ubuntu:ubuntu /home/ubuntu/.kube/config" \
   "kubectl cluster-info --request-timeout=20s"
 
 
