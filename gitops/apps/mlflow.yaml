@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mlflow
+  namespace: argocd
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mlflow
+  sources:
+    - repoURL: https://community-charts.github.io/helm-charts
+      chart: mlflow
+      targetRevision: 0.7.19
+      helm:
+        releaseName: mlflow-server
+        valueFiles:
+          - $values/modules/mlflow/values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
+  syncPolicy:
+    # No automated sync: mlflow values file in Git contains runtime placeholders
+    # (__IRSA_ROLE_ARN__, __DB_HOST__, __DB_PASS__, etc.) rendered by phase2 only.
+    # Syncing from Git would break DB/S3 connectivity. ArgoCD is used for health monitoring only.
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Secret
+      name: mlflow-server-env-secret
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: ConfigMap
+      name: mlflow-server-env-configmap
+      jsonPointers:
+        - /data

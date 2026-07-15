@@ -1,0 +1,353 @@
+locals {
+  cluster_name = var.cluster_name
+}
+
+# ci-test: trigger PR pipeline validation
+
+# CloudWatch Log Group for EKS Cluster Logs
+resource "aws_cloudwatch_log_group" "eks_cluster_logs" {
+  name              = "/aws/eks/${local.cluster_name}/cluster"
+  retention_in_days = var.cluster_log_retention_days
+
+  tags = {
+    Name = "${local.cluster_name}-logs"
+  }
+}
+
+# EKS Cluster
+resource "aws_eks_cluster" "main" {
+  name     = local.cluster_name
+  role_arn = aws_iam_role.eks_cluster_role.arn
+  version  = var.cluster_version
+
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
+  vpc_config {
+    subnet_ids = concat(var.public_subnet_ids, var.private_subnet_ids)
+    # Attach the custom control plane security group so the cluster SG rules are applied
+    security_group_ids      = [var.control_plane_security_group_id]
+    endpoint_private_access = true
+    # Public endpoint disabled: kubectl must be run from within the VPC (bastion / VPN).
+    # This is the most secure posture and avoids exposing the K8s API to the internet.
+    endpoint_public_access = false
+  }
+
+  # Enable cluster logging
+  enabled_cluster_log_types = [
+    "api",
+    "audit",
+    "authenticator",
+    "controllerManager",
+    "scheduler"
+  ]
+
+  # Ensure log group exists before cluster creation
+  depends_on = [
+    aws_cloudwatch_log_group.eks_cluster_logs,
+    aws_iam_role_policy_attachment.eks_cluster_policy,
+    aws_iam_role_policy_attachment.eks_vpc_resource_controller
+  ]
+
+  tags = {
+    Name = local.cluster_name
+  }
+}
+
+# ── Launch Templates ──────────────────────────────────────────────────────────
+# Three dedicated templates, one per node role, so disk/config changes are
+# isolated and never trigger unintended rolling updates on sibling node groups.
+
+# Infra nodes: runs Helm-bootstrapped platform services (ArgoCD, Prometheus,
+# Grafana, MLflow, Argo Workflows, cert-manager, KServe controller, Cloudflare).
+# Disk enlarged to 40 GiB (default AMI root = 20 GiB).
+resource "aws_launch_template" "eks_infra_nodes" {
+  name_prefix = "${local.cluster_name}-infra-node-"
+  description = "Launch template for EKS infra nodes -platform services, 40 GiB root EBS"
+
+  vpc_security_group_ids = [var.worker_nodes_security_group_id]
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.node_disk_size_gb
+      volume_type           = "gp3"
+      delete_on_termination = true
+      encrypted             = true
+    }
+  }
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "${local.cluster_name}-infra-node"
+  }
+}
+
+# CPU ML nodes: CPU-intensive preprocessing and training jobs.
+# No enlarged disk needed -workloads use ephemeral volumes, not image layers.
+resource "aws_launch_template" "eks_cpu_nodes" {
+  name_prefix = "${local.cluster_name}-cpu-node-"
+  description = "Launch template for EKS CPU ML nodes -SG attachment only"
+
+  vpc_security_group_ids = [var.worker_nodes_security_group_id]
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "${local.cluster_name}-cpu-node"
+  }
+}
+
+# GPU nodes: NVIDIA T4 training jobs (EfficientNet-B3 + XRAI).
+# Disk enlarged to 50 GiB for CUDA image layers + model checkpoints.
+resource "aws_launch_template" "eks_gpu_nodes" {
+  name_prefix = "${local.cluster_name}-gpu-node-"
+  description = "Launch template for EKS GPU nodes -NVIDIA training, 50 GiB root EBS"
+
+  vpc_security_group_ids = [var.worker_nodes_security_group_id]
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.ml_node_disk_size_gb
+      volume_type           = "gp3"
+      delete_on_termination = true
+      encrypted             = true
+    }
+  }
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "${local.cluster_name}-gpu-node"
+  }
+}
+
+# Terraform state moves - rename resource labels without destroying AWS resources.
+moved {
+  from = aws_launch_template.eks_nodes
+  to   = aws_launch_template.eks_cpu_nodes
+}
+moved {
+  from = aws_launch_template.eks_general_nodes
+  to   = aws_launch_template.eks_infra_nodes
+}
+moved {
+  from = aws_launch_template.eks_ml_nodes
+  to   = aws_launch_template.eks_gpu_nodes
+}
+
+# EKS Node Group
+resource "aws_eks_node_group" "infra_nodes" {
+  cluster_name    = aws_eks_cluster.main.name
+  node_group_name = "${local.cluster_name}-infra-node-group"
+  node_role_arn   = aws_iam_role.worker_nodes_role.arn
+  subnet_ids      = var.private_subnet_ids
+  capacity_type   = var.node_capacity_type
+  instance_types  = var.node_instance_types
+
+  # Infra node group: runs Helm-bootstrapped platform services (ArgoCD, Prometheus, MLflow…)
+  launch_template {
+    id      = aws_launch_template.eks_infra_nodes.id
+    version = aws_launch_template.eks_infra_nodes.latest_version
+  }
+
+  # Node group scaling configuration
+  scaling_config {
+    desired_size = var.node_desired_size
+    max_size     = var.node_max_size
+    min_size     = var.node_min_size
+  }
+
+  # Update strategy
+  update_config {
+    max_unavailable_percentage = 50
+  }
+
+  # Label general worker nodes for workload targeting
+  labels = {
+    role = "general"
+  }
+
+  # Ensure IAM roles are created before node group
+  depends_on = [
+    aws_iam_role_policy_attachment.worker_nodes_policy,
+    aws_iam_role_policy_attachment.worker_nodes_cni_policy,
+    aws_iam_role_policy_attachment.worker_nodes_registry_policy
+  ]
+
+  tags = {
+    Name                                              = "${local.cluster_name}-node-group"
+    "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
+    "k8s.io/cluster-autoscaler/enabled"               = "true"
+  }
+
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+  }
+}
+
+# OIDC (OpenID Connect) Provider for IRSA (AWS IAM Roles for Service Accounts)
+# Get the EKS cluster OIDC issuer URL through the SSL/TLS certificate
+data "tls_certificate" "eks" {
+  # This block checks that URL, downloads the security certificate, and extracts a hash code called a Thumbprint (digital fingerprint).
+  url = aws_eks_cluster.main.identity[0].oidc[0].issuer
+}
+
+# Register the OIDC provider with AWS IAM
+resource "aws_iam_openid_connect_provider" "eks" {
+  client_id_list  = ["sts.amazonaws.com"]                                       # STS: Security Token Service
+  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint] # Get the thumbprint from the certificate
+  url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
+}
+
+resource "aws_eks_node_group" "ml_nodes" {
+  count           = var.enable_ml_node_group ? 1 : 0
+  cluster_name    = aws_eks_cluster.main.name
+  node_group_name = "${local.cluster_name}-ml-node-group"
+  node_role_arn   = aws_iam_role.worker_nodes_role.arn
+  subnet_ids      = var.private_subnet_ids
+  ami_type        = "AL2023_x86_64_NVIDIA" # GPU-optimized AL2023 AMI with NVIDIA drivers (required for EKS >= 1.33)
+  capacity_type   = var.ml_node_capacity_type
+  instance_types  = var.ml_node_instance_types
+
+  # GPU node group: NVIDIA T4 training (EfficientNet-B3 + XRAI) -50 GiB root EBS
+  launch_template {
+    id      = aws_launch_template.eks_gpu_nodes.id
+    version = aws_launch_template.eks_gpu_nodes.latest_version
+  }
+
+  # Node group scaling configuration - starts at 0, Cluster Autoscaler scales up on demand
+  scaling_config {
+    desired_size = var.ml_node_desired_size
+    max_size     = var.ml_node_max_size
+    min_size     = var.ml_node_min_size
+  }
+
+  # Update strategy
+  update_config {
+    max_unavailable_percentage = 50
+  }
+
+  # Isolate ML workload: system/ingress pods cannot be scheduled here
+  labels = {
+    role     = "ml-pipeline"
+    workload = "gpu-training"
+  }
+
+  # Taint: only pods with matching toleration will be scheduled
+  taint {
+    key    = "workload"
+    value  = "ml"
+    effect = "NO_SCHEDULE"
+  }
+
+  # Ensure IAM roles are created before node group
+  depends_on = [
+    aws_iam_role_policy_attachment.worker_nodes_policy,
+    aws_iam_role_policy_attachment.worker_nodes_cni_policy,
+    aws_iam_role_policy_attachment.worker_nodes_registry_policy
+  ]
+
+  tags = {
+    Name                                              = "${local.cluster_name}-ml-node-group"
+    "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
+    "k8s.io/cluster-autoscaler/enabled"               = "true"
+  }
+
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+  }
+}
+
+resource "aws_eks_node_group" "cpu_nodes" {
+  count           = var.enable_cpu_node_group ? 1 : 0
+  cluster_name    = aws_eks_cluster.main.name
+  node_group_name = "${local.cluster_name}-cpu-node-group"
+  node_role_arn   = aws_iam_role.worker_nodes_role.arn
+  subnet_ids      = var.private_subnet_ids
+  capacity_type   = var.cpu_node_capacity_type
+  instance_types  = var.cpu_node_instance_types
+
+  # CPU node group: SG attachment only (no disk override needed)
+  launch_template {
+    id      = aws_launch_template.eks_cpu_nodes.id
+    version = aws_launch_template.eks_cpu_nodes.latest_version
+  }
+
+  scaling_config {
+    desired_size = var.cpu_node_desired_size
+    max_size     = var.cpu_node_max_size
+    min_size     = var.cpu_node_min_size
+  }
+
+  update_config {
+    max_unavailable_percentage = 50
+  }
+
+  # Isolate CPU ML workloads from general services and GPU training pods
+  labels = {
+    role     = "cpu-ml"
+    workload = "cpu-training"
+  }
+
+  taint {
+    key    = "workload"
+    value  = "cpu"
+    effect = "NO_SCHEDULE"
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.worker_nodes_policy,
+    aws_iam_role_policy_attachment.worker_nodes_cni_policy,
+    aws_iam_role_policy_attachment.worker_nodes_registry_policy
+  ]
+
+  tags = {
+    Name                                              = "${local.cluster_name}-cpu-node-group"
+    "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
+    "k8s.io/cluster-autoscaler/enabled"               = "true"
+  }
+
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size]
+  }
+}
+
+# Install CSI Driver for EFS (Elastic File System) for EKS Worker Node
+resource "aws_eks_addon" "aws_efs_csi_driver" {
+  cluster_name             = aws_eks_cluster.main.name
+  addon_name               = "aws-efs-csi-driver"
+  service_account_role_arn = aws_iam_role.efs_csi_driver_role.arn
+
+  depends_on = [
+    aws_eks_node_group.infra_nodes
+  ]
+}

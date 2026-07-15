@@ -1,0 +1,37 @@
+# This is for Prometheus K8s namespace
+
+# Disable Grafana because it will be installed in a separate namespace
+grafana:
+  enabled: false
+
+# Prometheus configuration
+# The Prometheus and Alertmanager configuration utilizes the Node's ephemeral storage (Node's disk/RAM) instead of requiring AWS to allocate expensive EBS (Persistent Volume) hard drives.
+prometheus:
+  prometheusSpec:
+    # Ephemeral storage - no PVC/EBS
+    storageSpec: {}
+    # Only store metrics data for 1 day
+    retention: 1d
+
+# Alertmanager configuration
+# NOTE: alertmanager.config is intentionally omitted here.
+# The full config (including SNS/IRSA secrets) is rendered by phase2-install-addons.sh
+# and injected directly as a Kubernetes Secret named "alertmanager-sns-config".
+# This prevents ArgoCD from reading __placeholders__ from Git and overwriting the secret.
+alertmanager:
+  serviceAccount:
+    create: true
+    name: alertmanager-sns
+    annotations:
+      # IRSA annotation is rendered by phase2 via kubectl patch after Helm install.
+      # Placeholder here is intentional — ArgoCD ignores annotation drift via ignoreDifferences.
+      eks.amazonaws.com/role-arn: __ALERTMANAGER_IRSA_ROLE_ARN__
+  alertmanagerSpec:
+    # configSecret: name of the K8s Secret containing the Alertmanager config.
+    # This secret is created by phase2-install-addons.sh with rendered SNS/IRSA values
+    # so ArgoCD never reads __placeholders__ from Git.
+    configSecret: alertmanager-sns-config
+    # Ephemeral storage - no PVC/EBS
+    storage:
+      emptyDir: {}
+

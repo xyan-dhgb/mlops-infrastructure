@@ -1,0 +1,147 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mlops-pipeline-alerts
+  namespace: prometheus
+  labels:
+    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus-stack
+spec:
+  groups:
+    # ── Argo Workflows ──────────────────────────────────────────────────────
+    - name: argo-workflows
+      rules:
+        # Workflow thất bại — alert ngay
+        - alert: ArgoWorkflowFailed
+          expr: |
+            increase(argo_workflows_gauge{phase="Failed"}[10m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: mlops
+          annotations:
+            summary: "Argo Workflow thất bại"
+            description: "Workflow phase=Failed tăng trong 10 phút qua. Kiểm tra Argo UI."
+
+        # Workflow pending quá 30 phút — scheduling bottleneck (GPU node chưa scale up?)
+        - alert: ArgoWorkflowPendingTooLong
+          expr: |
+            argo_workflows_gauge{phase="Pending"} > 0
+          for: 30m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "Workflow pending > 30 phút"
+            description: "Có {{ $value }} workflow đang Pending, có thể GPU node chưa scale up."
+
+        # Tổng thời gian chạy pipeline > 5 giờ (SLA 21600s = 6h, cảnh báo sớm)
+        - alert: ArgoWorkflowRunningTooLong
+          expr: |
+            argo_workflow_duration_seconds{phase="Running"} > 18000
+          for: 5m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "Pipeline chạy quá 5 giờ"
+            description: "Workflow {{ $labels.workflow_name }} đã chạy {{ $value | humanizeDuration }}."
+
+    # ── GPU (NVIDIA DCGM Exporter) ──────────────────────────────────────────
+    - name: gpu-training
+      rules:
+        # GPU idle quá lâu — lãng phí chi phí spot instance
+        - alert: GPUIdleWaste
+          expr: |
+            avg by (Hostname, gpu) (DCGM_FI_DEV_GPU_UTIL) < 20
+          for: 10m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "GPU idle < 20% trong 10 phút"
+            description: "Node {{ $labels.Hostname }} GPU {{ $labels.gpu }}: util={{ $value | humanize }}% — lãng phí chi phí."
+
+        # VRAM gần đầy — nguy cơ OOM crash training
+        - alert: VRAMNearFull
+          expr: |
+            DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL * 100 > 90
+          for: 2m
+          labels:
+            severity: critical
+            team: mlops
+          annotations:
+            summary: "VRAM > 90% — nguy cơ OOM"
+            description: "Node {{ $labels.Hostname }} GPU {{ $labels.gpu }}: VRAM={{ $value | humanize }}% — có thể crash."
+
+        # GPU power cao nhưng utilization thấp — thermal throttling hoặc memory bottleneck
+        - alert: GPUPowerHighUtilLow
+          expr: |
+            DCGM_FI_DEV_POWER_USAGE > 100
+            and
+            DCGM_FI_DEV_GPU_UTIL < 30
+          for: 5m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "GPU power cao nhưng utilization thấp — I/O bottleneck"
+            description: "Node {{ $labels.Hostname }}: power={{ $value }}W nhưng util thấp. Kiểm tra data loading."
+
+    # ── Custom ML Training Metrics ──────────────────────────────────────────
+    # (scrape từ train pod metrics endpoint port 8000)
+    - name: ml-training
+      rules:
+        # Training loss tăng sau epoch 5 — model có thể bị diverge
+        - alert: TrainingLossDiverging
+          expr: |
+            increase(ml_training_loss[30m]) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "Training loss tăng bất thường"
+            description: "Model {{ $labels.model }} modality={{ $labels.modality }}: loss tăng {{ $value | humanize }} trong 30 phút."
+
+        # Data loading chậm hơn training — I/O bottleneck, GPU đang chờ CPU
+        - alert: DataLoadingBottleneck
+          expr: |
+            histogram_quantile(0.95, rate(ml_data_loading_seconds_bucket[5m])) > 2.0
+          for: 5m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "Data loading p95 > 2s — I/O bottleneck"
+            description: "p95 data loading = {{ $value | humanize }}s. GPU đang chờ CPU load data."
+
+        # Throughput training thấp
+        - alert: TrainingThroughputLow
+          expr: |
+            ml_samples_per_sec{stage="train"} < 10
+          for: 10m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "Training throughput < 10 samples/s"
+            description: "Throughput hiện tại: {{ $value | humanize }} samples/s. Kiểm tra batch size và GPU util."
+
+    # ── Ephemeral Storage ───────────────────────────────────────────────────
+    - name: node-storage
+      rules:
+        # Node gần hết ephemeral-storage — ngăn lỗi eviction tái diễn
+        - alert: NodeEphemeralStorageLow
+          expr: |
+            (
+              kubelet_volume_stats_available_bytes{persistentvolumeclaim=""}
+              / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=""}
+            ) < 0.15
+          for: 5m
+          labels:
+            severity: critical
+            team: mlops
+          annotations:
+            summary: "Ephemeral storage < 15%"
+            description: "Node {{ $labels.node }}: ephemeral storage còn {{ $value | humanizePercentage }}."

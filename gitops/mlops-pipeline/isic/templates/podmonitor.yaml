@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ml-train-pod-monitor
+  labels:
+    release: prometheus # Phải match với kube-prometheus-stack selector
+    {{- include "isic-ml-pipeline.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      metrics: enabled
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

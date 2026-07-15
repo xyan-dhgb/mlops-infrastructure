@@ -1,0 +1,302 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: isic-ml-pipeline
+  namespace: {{ .Values.global.namespace }}
+  labels: {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+spec:
+  serviceAccountName: isic-ml-workflow
+  entrypoint: pipeline
+  activeDeadlineSeconds: 21600
+  metrics:
+    prometheus:
+      - name: argo_workflow_duration_seconds
+        labels:
+          - key: workflow_name
+            value: '{{ `{{workflow.name}}` }}'
+          - key: phase
+            value: '{{ `{{workflow.status}}` }}'
+        help: "Duration of workflow in seconds"
+        gauge:
+          value: '{{ `{{workflow.duration}}` }}'
+          realtime: false
+  # Persist container logs to S3 during execution.
+
+  archiveLogs: true
+  # No global retryStrategy - any failed step fails the workflow immediately.
+
+  volumeClaimTemplates:
+    - metadata:
+        name: shared-pvc
+      spec:
+        accessModes: [ "ReadWriteMany" ]
+        storageClassName: efs-sc
+        resources:
+          requests:
+            storage: 100Gi
+
+  volumeClaimGC:
+    strategy: OnWorkflowCompletion
+
+  templates:
+    # ── DAG ────────────────────────────────────────────────────────────────────
+    - name: pipeline
+      dag:
+        tasks:
+          # 1. Download both image dataset + CSV from Kaggle (single step, single image)
+          - name: download-data
+            template: download-data
+
+          # 2. Preprocess image and CSV in parallel — each has its own ECR image
+          - name: preprocess-image
+            dependencies: [download-data]
+            template: preprocess-image
+          - name: preprocess-csv
+            dependencies: [download-data]
+            template: preprocess-csv
+
+          # 3. Shared dataloader — loads image + CSV, performs 64/16/20 split
+          - name: dataloader
+            dependencies: [preprocess-image, preprocess-csv]
+            template: dataloader
+
+          # 4. Build model branches in parallel from dataloader output
+          - name: build-efficientnetb3
+            dependencies: [dataloader]
+            template: build-efficientnetb3
+          - name: build-mlp
+            dependencies: [dataloader]
+            template: build-mlp
+
+          # 5. Train multimodal model (fuses EfficientNetB3 + MLP internally)
+          - name: train
+            dependencies: [build-efficientnetb3, build-mlp]
+            template: train
+
+          # 6. Evaluate → XAI (sequential)
+          - name: evaluate
+            dependencies: [train]
+            template: evaluate
+          - name: xai
+            dependencies: [evaluate]
+            template: xai
+
+    # ── Step: download-data ─────────────────────────────────────────────────────
+    # Node: general — download both image dataset + CSV from Kaggle in one step
+    - name: download-data
+      activeDeadlineSeconds: 3600
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.prepareData }}"
+        command: ["sh", "-c", "python download_dataset.py"]
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
+        resources:
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits: { cpu: "1", memory: "2Gi" }
+      nodeSelector:
+        role: cpu-ml
+      tolerations:
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
+
+    # ── Step: preprocess-image ──────────────────────────────────────────────────
+    # Node: cpu-ml — CLAHE, Gaussian, contrast enhancement on raw images (I/O heavy)
+    - name: preprocess-image
+      activeDeadlineSeconds: 10800
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessImage }}"
+        command: ["sh", "-c", "python preprocess_image.py"]
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
+        resources:
+          requests: { cpu: "6", memory: "12Gi" }
+          limits: { cpu: "8", memory: "15Gi" }
+      nodeSelector:
+        role: cpu-ml
+      tolerations:
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
+
+    # ── Step: preprocess-csv ────────────────────────────────────────────────────
+    # Node: cpu-ml — fit scaler/encoder on train split, transform val/test
+    - name: preprocess-csv
+      activeDeadlineSeconds: 3600
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.preprocessCsv }}"
+        command: ["sh", "-c", "python preprocess_csv.py"]
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
+        resources:
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits: { cpu: "1", memory: "2Gi" }
+      nodeSelector:
+        role: cpu-ml
+      tolerations:
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
+
+    # ── Step: dataloader ────────────────────────────────────────────────────────
+    # Node: cpu-ml — shared dataloader for image + CSV, performs 64/16/20 split
+    # Single script handles both modalities and aligns isic_id across branches
+    - name: dataloader
+      activeDeadlineSeconds: 3600
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.dataloader }}"
+        command: ["sh", "-c", "python dataloader.py"]
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
+        resources:
+          requests: { cpu: "2", memory: "8Gi" }
+          limits: { cpu: "4", memory: "24Gi" }
+      nodeSelector:
+        role: cpu-ml
+      tolerations:
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
+
+    # ── Step: build-efficientnetb3 ──────────────────────────────────────────────
+    # Node: cpu-ml — build CNN branch (EfficientNetB3) from preprocessed images
+    # Runs in parallel with build-mlp
+    - name: build-efficientnetb3
+      activeDeadlineSeconds: 1800
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildEfficientnetb3 }}"
+        command: ["sh", "-c", "python build_efficientnetB3.py"]
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
+        resources:
+          requests: { cpu: "1", memory: "4Gi" }
+          limits: { cpu: "2", memory: "6Gi" }
+      nodeSelector:
+        role: cpu-ml
+      tolerations:
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
+
+    # ── Step: build-mlp ────────────────────────────────────────────────────────
+    # Node: cpu-ml — build tabular branch (MLP) from preprocessed CSV features
+    # Runs in parallel with build-efficientnetb3
+    - name: build-mlp
+      activeDeadlineSeconds: 900
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.buildMlp }}"
+        command: ["sh", "-c", "python build_mlp.py"]
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
+        resources:
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits: { cpu: "1", memory: "2Gi" }
+      nodeSelector:
+        role: cpu-ml
+      tolerations:
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
+
+    # ── Step: train ────────────────────────────────────────────────────────────
+    # Node: gpu (g4dn.xlarge: 16 GB RAM, 1× NVIDIA T4 16 GB VRAM)
+    # metrics: train.py expose Prometheus metrics tại port 8000 (/metrics)
+    #          PodMonitor "ml-train-pod-monitor" scrape label metrics=enabled
+    - name: train
+      activeDeadlineSeconds: 14400
+      metadata:
+        labels:
+          metrics: enabled # PodMonitor discover pod này để scrape port 8000
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.train }}"
+        command: ["sh", "-c", "python train.py"]
+        volumeMounts:
+          - mountPath: /dev/shm
+            name: dshm
+          - name: shared-pvc
+            mountPath: /app/data
+        ports:
+          - name: metrics # Prometheus scrape target
+            containerPort: 8000
+            protocol: TCP
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        resources:
+          requests:
+            cpu: "3"
+            memory: "8Gi"
+            nvidia.com/gpu: "1"
+            ephemeral-storage: "10Gi"
+          limits:
+            cpu: "4"
+            memory: "12Gi"
+            nvidia.com/gpu: "1"
+            ephemeral-storage: "15Gi"
+      nodeSelector:
+        role: ml-pipeline
+        workload: gpu-training
+      tolerations:
+        - { key: workload, operator: Equal, value: "ml", effect: NoSchedule }
+
+    # ── Step: evaluate ─────────────────────────────────────────────────────────
+    # Node: cpu-ml — AUC/pAUC/F1/Recall + threshold tuning on full test set
+    # GPU không cần thiết: evaluate chỉ chạy inference (forward pass) + tính metrics.
+    # Dùng cpu-ml (min_size=1, luôn có sẵn) tránh pending do CA scale-down GPU node
+    # sau khi train hoàn thành.
+    - name: evaluate
+      activeDeadlineSeconds: 3600
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.evaluate }}"
+        command: ["sh", "-c", "python evaluate.py"]
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
+        resources:
+          requests: { cpu: "2", memory: "8Gi" }
+          limits: { cpu: "4", memory: "12Gi" }
+      nodeSelector:
+        role: cpu-ml
+      tolerations:
+        - { key: workload, operator: Equal, value: "cpu", effect: NoSchedule }
+
+    # ── Step: xai ──────────────────────────────────────────────────────────────
+    # Node: gpu — Grad-CAM (image branch) + SHAP (tabular branch) report
+    - name: xai
+      activeDeadlineSeconds: 7200
+      container:
+        image: "{{ .Values.global.ecrRegistry }}/{{ .Values.global.ecrRepository }}:{{ .Values.images.xai }}"
+        command: ["sh", "-c", "python xai.py"]
+        envFrom:
+          - configMapRef: { name: isic-ml-config }
+          - secretRef: { name: isic-ml-secret }
+        volumeMounts:
+          - name: shared-pvc
+            mountPath: /app/data
+        resources:
+          requests: { cpu: "2", memory: "8Gi", nvidia.com/gpu: "1" }
+          limits: { cpu: "3", memory: "12Gi", nvidia.com/gpu: "1" }
+      nodeSelector:
+        role: ml-pipeline
+        workload: gpu-training
+      tolerations:
+        - { key: workload, operator: Equal, value: "ml", effect: NoSchedule }

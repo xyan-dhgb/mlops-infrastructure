@@ -1,0 +1,142 @@
+name: "Model Serving CI/CD: Build and Deploy to EKS"
+
+on:
+  # Pull Request is MERGED into dev from feature/** branch
+  pull_request:
+    types:
+      - closed # only fire when PR is closed (merged or declined)
+    branches:
+      - dev # target branch is dev
+    paths:
+      - "src/model-serving/**" # only when model-serving changed
+
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: "Force rebuild Docker image (skip cache)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  id-token: write # AWS OIDC login
+  contents: write # Commit image tag vào inference-service.yaml
+  actions: read
+
+env:
+  AWS_REGION: "ap-southeast-1"
+  ECR_REPOSITORY: "skin-cancer-predictor"
+  INFERENCE_SERVICE_PATH: "gitops/model-serving/inference-service.yaml"
+
+jobs:
+  # Job 1: Build and Push Docker image to ECR
+  build-and-push:
+    name: "Build and Push Docker Image"
+    runs-on: ubuntu-latest
+    # With pull_request trigger: only run when PR is merged (do not build if PR is declined)
+    # With push / workflow_dispatch: event.pull_request does not exist → condition is always true
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+
+    outputs:
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+      image_tag: ${{ steps.set-tag.outputs.image_tag }}
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+
+      - name: "Configure AWS Credentials"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: "Login to Amazon ECR"
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: "Generate image tag theo timestamp"
+        id: set-tag
+        run: |
+          # Format: skin-cancer-predictor-YYYYMMDD-HHmmss (UTC)
+          # Use seconds to avoid collision when triggering multiple times in the same minute
+          IMAGE_TAG="skin-cancer-predictor-$(date -u +'%Y%m%d-%H%M%S')"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "📦 Image tag: ${IMAGE_TAG}"
+
+      - name: "Build Docker Image"
+        working-directory: src/model-serving
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          REPO="${{ env.ECR_REPOSITORY }}"
+          TAG="${{ steps.set-tag.outputs.image_tag }}"
+
+          docker build \
+            --tag "${REGISTRY}/${REPO}:${TAG}" \
+            ${{ github.event.inputs.force_rebuild == 'true' && '--no-cache' || '' }} \
+            .
+
+          echo "🐳 Built: ${REGISTRY}/${REPO}:${TAG}"
+
+      - name: "Push Docker Image to ECR"
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          REPO="${{ env.ECR_REPOSITORY }}"
+          TAG="${{ steps.set-tag.outputs.image_tag }}"
+
+          # Push versioned tag — dùng trong GitOps manifest (immutable, traceable)
+          docker push "${REGISTRY}/${REPO}:${TAG}"
+
+          echo "✅ Pushed:"
+          echo "   ${REGISTRY}/${REPO}:${TAG}"
+
+  # Job 2: Update image tag in GitOps manifest
+  update-gitops:
+    name: "Update GitOps Manifest"
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} #Mono Repo
+
+      - name: "Patch image tag into inference-service.yaml"
+        env:
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr_registry }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          NEW_IMAGE="${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          echo "🔄 Updating image → ${NEW_IMAGE}"
+
+          # Match both cases:
+          #   PATCH_ECR_REGISTRY/skin-cancer-predictor:latest  (first placeholder)
+          #   123456.dkr.ecr.../skin-cancer-predictor:skin-cancer-predictor-... (old tag)
+          sed -i "s|image: .*/skin-cancer-predictor.*|image: ${NEW_IMAGE}|g" \
+            "${{ env.INFERENCE_SERVICE_PATH }}"
+
+          echo "✅ Content after patch:"
+          grep "image:" "${{ env.INFERENCE_SERVICE_PATH }}"
+
+      - name: "Commit and push updated manifest"
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "${{ env.INFERENCE_SERVICE_PATH }}"
+
+          # Only commit if there are actual changes
+          if git diff --staged --quiet; then
+            echo "ℹ️ No changes detected, skipping commit."
+          else
+            git commit -m "chore(serving): update image tag → ${{ needs.build-and-push.outputs.image_tag }}"
+            git push
+            echo "✅ GitOps manifest has been updated."
+            echo "   ArgoCD will automatically deploy InferenceService to the model-serving namespace."
+          fi

@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kserve-model-serving
+  namespace: prometheus
+  labels:
+    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus-stack
+spec:
+  # Scrape Service ở namespace model-serving
+  namespaceSelector:
+    matchNames:
+      - model-serving
+  selector:
+    matchLabels:
+      serving.kserve.io/inferenceservice: skin-prediction
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

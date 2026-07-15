@@ -1,0 +1,55 @@
+# Each replica maintains 4 connections to cloudflare edge
+# topologySpreadConstraints spreads across 2 AZ (ap-southeast-1a, ap-southeast-1b)
+replicaCount: 2
+
+image:
+  repository: cloudflare/cloudflared
+  tag: latest
+  pullPolicy: Always
+
+cloudflare:
+  # tunnelName is used in the cloudflared config.yaml (accepts UUID or name)
+  tunnelName: "__TUNNEL_ID__"
+  # tunnelId is used in the secret template (skipped when secretName is set)
+  tunnelId: "__TUNNEL_ID__"
+  # Use the pre-created secret (created via kubectl before helm install)
+  # This skips the chart's built-in secret template
+  secretName: "cloudflared-cloudflare-tunnel"
+
+  ingress:
+  - hostname: __ARGOCD_DOMAIN__
+    service: https://argocd-server.argocd.svc.cluster.local:443
+    originRequest:
+      noTLSVerify: true
+
+  - hostname: __GRAFANA_DOMAIN__
+    service: http://grafana.grafana.svc.cluster.local:80
+
+  - hostname: __MLFLOW_DOMAIN__
+    service: http://mlflow-server.mlflow.svc.cluster.local:5000
+
+  - hostname: __ARGO_WORKFLOWS_DOMAIN__
+    service: http://argo-workflows-server.argo-workflows.svc.cluster.local:2746
+  # NOTE: catch-all "http_status:404" is auto-appended by the chart template
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: cloudflared
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+tolerations:
+  - key: "workload"
+    operator: "Equal"
+    value: "cpu"
+    effect: "NoSchedule"

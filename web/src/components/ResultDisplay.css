@@ -1,0 +1,149 @@
+.result-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-xxl) var(--space-lg);
+  text-align: center;
+  min-height: 260px;
+}
+
+.result-panel--empty,
+.result-panel--loading {
+  color: var(--color-ink-muted-48);
+}
+
+.result-panel--error {
+  color: var(--color-malignant);
+}
+
+.result-panel__icon {
+  font-size: 40px;
+  line-height: 1;
+}
+
+/* Spinner */
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-divider-soft);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Result done state */
+.result-panel--done {
+  gap: var(--space-sm);
+  padding: var(--space-xl) var(--space-lg);
+}
+
+/* Label badge */
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: 0.231px;
+  padding: 8px 24px;
+  border-radius: var(--rounded-pill);
+  animation: badgeAppear 0.4s ease-out;
+}
+
+.result-badge--benign {
+  background: rgba(52, 199, 89, 0.12);
+  color: var(--color-benign);
+}
+
+.result-badge--malignant {
+  background: rgba(255, 59, 48, 0.12);
+  color: var(--color-malignant);
+}
+
+@keyframes badgeAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Probability */
+.result-prob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xxs);
+}
+
+.result-prob__label {
+  color: var(--color-ink-muted-48);
+}
+
+.result-prob__value {
+  color: var(--color-ink);
+  animation: countUp 0.6s ease-out;
+}
+
+.result-prob__unit {
+  font-size: 24px;
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Progress bar */
+.result-bar {
+  width: 100%;
+  max-width: 400px;
+  height: 8px;
+  background: var(--color-divider-soft);
+  border-radius: var(--rounded-pill);
+  overflow: hidden;
+}
+
+.result-bar__fill {
+  height: 100%;
+  border-radius: var(--rounded-pill);
+  transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.result-bar__fill--benign {
+  background: var(--color-benign);
+}
+
+.result-bar__fill--malignant {
+  background: var(--color-malignant);
+}
+
+/* Thresholds */
+.result-thresholds {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 400px;
+}
+
+.result-thresholds__mid {
+  color: var(--color-ink-muted-48);
+}
+
+/* Meta */
+.result-meta {
+  margin-top: var(--space-xs);
+  color: var(--color-ink-muted-48);
+}

@@ -1,0 +1,146 @@
+#!/bin/bash
+
+set -euo pipefail   # Stop immediately if there is an error, an unset variable, or a pipe error
+
+# Log to file for debugging
+exec > /var/log/user_data_bootstrap.log 2>&1
+echo "=== Bootstrap started at $(date) ==="
+
+# 1. Update package list
+apt-get update -y
+
+# 2. Install basic dependencies
+apt-get install -y \
+  unzip \
+  wget \
+  curl \
+  jq \
+  gpg \
+  apt-transport-https \
+  neofetch
+
+# 3. Install AWS CLI v2
+echo "--- Installing AWS CLI v2 ---"
+
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+rm -rf /tmp/awscliv2.zip /tmp/aws
+
+aws --version
+
+# 4. Install kubectl
+# Ensure it matches EKS cluster minor version (skew policy: ±1)
+echo "--- Installing kubectl ---"
+
+KUBECTL_VERSION=$(curl -fsSL "https://dl.k8s.io/release/stable.txt")
+curl -fsSL "https://dl.k8s.io/release/$${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /tmp/kubectl
+curl -fsSL "https://dl.k8s.io/release/$${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" -o /tmp/kubectl.sha256
+echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum --check
+install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+rm -f /tmp/kubectl /tmp/kubectl.sha256
+
+kubectl version --client
+
+# 5. Install Helm
+# IMPORTANT: Pin to Helm v3.x — all charts (kube-prometheus-stack 56.6.2,
+# argo-cd 7.5.2, etc.) are tested with Helm 3. Helm v4 has breaking changes
+# (removed CLI flags, server-side apply defaults) that cause installs to hang.
+echo "--- Installing Helm ---"
+
+HELM_VERSION="v3.17.3"
+echo "Installing Helm $${HELM_VERSION} (pinned)..."
+
+curl -fsSL --http1.1 \
+  "https://get.helm.sh/helm-$${HELM_VERSION}-linux-amd64.tar.gz" \
+  -o /tmp/helm.tar.gz
+
+# Verify file không rỗng
+if [ ! -s /tmp/helm.tar.gz ]; then
+  echo "ERROR: helm.tar.gz download failed"
+  exit 1
+fi
+
+tar -zxf /tmp/helm.tar.gz -C /tmp
+install -o root -g root -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
+
+helm version
+
+# 6. Install ArgoCD CLI
+# Pin to v2.11.3 to match the version used in phase2-install-addons.sh
+echo "--- Installing ArgoCD CLI ---"
+
+ARGOCD_VERSION="v2.11.3"
+echo "Installing ArgoCD CLI $${ARGOCD_VERSION} (pinned)..."
+
+curl -fsSL \
+  "https://github.com/argoproj/argo-cd/releases/download/$${ARGOCD_VERSION}/argocd-linux-amd64" \
+  -o /tmp/argocd
+
+# Verify file is not empty
+if [ ! -s /tmp/argocd ]; then
+  echo "ERROR: argocd binary download failed"
+  exit 1
+fi
+
+install -o root -g root -m 0755 /tmp/argocd /usr/local/bin/argocd
+rm -f /tmp/argocd
+
+argocd version --client
+
+echo "--- Waiting for EKS cluster '${cluster_name}' to become ACTIVE ---"
+aws eks wait cluster-active \
+  --region ${aws_region} \
+  --name ${cluster_name}
+
+aws eks update-kubeconfig --region ${aws_region} --name ${cluster_name}
+
+# Install metrics-server for kubectl top (pinned version for stability)
+METRICS_SERVER_VERSION="v0.7.2"
+kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/$${METRICS_SERVER_VERSION}/components.yaml"
+
+kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
+{
+"op": "add",
+"path": "/spec/template/spec/hostNetwork",
+"value": true
+},
+{
+"op": "replace",
+"path": "/spec/template/spec/containers/0/args",
+"value": [
+   "--cert-dir=/tmp",
+   "--secure-port=4443",
+   "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
+   "--kubelet-use-node-status-port",
+   "--metric-resolution=15s",
+   "--kubelet-insecure-tls"
+]
+},
+{
+"op": "replace",
+"path": "/spec/template/spec/containers/0/ports/0/containerPort",
+"value": 4443
+}
+]'
+
+kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s
+
+kubectl -n kube-system get pods -l k8s-app=metrics-server
+kubectl get apiservices -l k8s-app=metrics-server
+
+# Diagnostic only — don't fail the script if pod logs aren't available yet
+POD_NAME=$(kubectl -n kube-system get pods -l k8s-app=metrics-server \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || true
+if [ -n "$${POD_NAME}" ]; then
+  kubectl -n kube-system logs "$${POD_NAME}" --tail=20 || true
+fi
+
+echo "Finishing installing kubectl top command"
+
+echo "=== Basics tools install finished at $(date) ==="
+
+# NOTE: Do NOT call 'cloud-init status --wait' here.
+# This script IS part of cloud-init — waiting for cloud-init to finish
+# from inside cloud-init causes a deadlock.

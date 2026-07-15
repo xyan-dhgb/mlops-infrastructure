@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 7.5.2
+      helm:
+        releaseName: argocd
+        valueFiles:
+          - $values/modules/argocd/values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+        - /spec/template/metadata/annotations
+    # FIX: Kubernetes 1.28+ added .status.terminatingReplicas to StatefulSet.
+    # ArgoCD 7.5.2 schema does not declare this field → ComparisonError with ServerSideApply.
+    # Must be at Application-level (not just argocd-cm) to break the chicken-and-egg cycle:
+    # ArgoCD needs this config to sync itself, but can't sync without it.
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .status.terminatingReplicas
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: ConfigMap
+      name: argocd-cm
+      jsonPointers:
+        - /data

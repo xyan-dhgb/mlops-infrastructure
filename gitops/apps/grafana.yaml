@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: grafana
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: grafana
+      targetRevision: 7.3.0
+      helm:
+        releaseName: grafana
+        valueFiles:
+          - $values/modules/monitoring/grafana/grafana-values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
+  syncPolicy:
+    # No automated sync: grafana values file in Git contains __GRAFANA_DOMAIN__ placeholder.
+    # Rendered values are applied by phase2 only. ArgoCD is used for health monitoring only.
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Secret
+      name: grafana
+      jsonPointers:
+        - /data/admin-password
+        - /data/admin-user

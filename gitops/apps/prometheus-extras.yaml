@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-extras
+  namespace: argocd
+  annotations:
+    # Apply AFTER prometheus (sync-wave: "0") - CRDs (ServiceMonitor, PrometheusRule)
+    # must exist before raw manifests referencing them can be applied.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+    targetRevision: dev
+    # Sync all raw manifests in this directory:
+    path: modules/monitoring/prometheus
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false   # prometheus namespace already created by prometheus app
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true

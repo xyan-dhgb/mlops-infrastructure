@@ -1,0 +1,100 @@
+name: "Helm Bootstrap - K8s Add-ons via SSM"
+# Flow:
+#  Phase 1 - EC2 Instance Connect (1 time, <30s): Install and start SSM Agent
+#  Phase 2 - AWS SSM (no expire): helm install LBC, ingress-nginx, ArgoCD, NVIDIA, Monitoring, Cloudflare
+
+on:
+  workflow_dispatch:
+    inputs:
+      eks_cluster_name:
+        description: "Tên EKS cluster"
+        required: true
+        default: "mlops-infr-dev-eks"
+        type: string
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: "ap-southeast-1"
+
+jobs:
+  bootstrap:
+    name: "Bootstrap K8s Add-ons via SSM"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Phase 1: EC2 Instance Connect → Start SSM Agent
+      - name: "Phase 1: Start SSM Agent on Bastion"
+        run: |
+          echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> "$GITHUB_ENV"
+          chmod +x .github/scripts/bash/phase1-start-ssm-agent.sh
+          bash .github/scripts/bash/phase1-start-ssm-agent.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          BASTION_PRIVATE_KEY: ${{ secrets.BASTION_PRIVATE_KEY }}
+
+      # Phase 2: Helm installs via SSM
+      - name: "Phase 2: Install K8s Add-ons"
+        id: install_addons
+        run: |
+          chmod +x .github/scripts/bash/ssm-run.sh .github/scripts/bash/phase2-install-addons.sh
+          bash .github/scripts/bash/phase2-install-addons.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+          INSTANCE_ID: ${{ env.INSTANCE_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ARGOCD_UI_SECRET: ${{ secrets.ARGOCD_UI_SECRET }}
+          MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          CLOUDFLARE_TUNNEL_CREDENTIALS: ${{ secrets.CLOUDFLARE_TUNNEL_CREDENTIALS }}
+          CLOUDFLARE_TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
+          ARGOCD_DOMAIN: ${{ secrets.ARGOCD_DOMAIN }}
+          GRAFANA_DOMAIN: ${{ secrets.GRAFANA_DOMAIN }}
+          MLFLOW_DOMAIN: ${{ secrets.MLFLOW_DOMAIN }}
+          ARGO_WORKFLOWS_DOMAIN: ${{ secrets.ARGO_WORKFLOWS_DOMAIN }}
+
+      # Summary
+      - name: Post bootstrap summary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << 'EOF'
+          ## Helm Bootstrap (SSM) — ${{ github.event.inputs.environment }}
+
+          | Add-on                       | Status |
+          |------------------------------|--------|
+          | ArgoCD                       | `${{ steps.install_addons.outcome }}` |
+          | Argo Workflows               | `${{ steps.install_addons.outcome }}` |
+          | NVIDIA Device Plugin         | `${{ steps.install_addons.outcome }}` |
+          | MLflow                       | `${{ steps.install_addons.outcome }}` |
+          | Monitoring (Prom/Grafana)    | `${{ steps.install_addons.outcome }}` |
+          | Cloudflare Tunnel            | `${{ steps.install_addons.outcome }}` |
+          | cert-manager                 | `${{ steps.install_addons.outcome }}` |
+          | KServe                       | `${{ steps.install_addons.outcome }}` |
+
+          EOF
+
+# Tip — Get ArgoCD initial admin password:
+# kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d

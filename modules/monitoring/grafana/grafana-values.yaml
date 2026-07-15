@@ -1,0 +1,58 @@
+# This is for Grafana K8s namespace
+
+# adminPassword is injected via GitHub Secrets
+
+service:
+  type: ClusterIP # Use for port-forwarding
+
+persistence:
+  enabled: false # Ephemeral storage for Grafana
+
+# Provision dashboards from ConfigMaps generated during bootstrap.
+# This keeps Grafana stateless and recreates dashboards after each daily apply.
+sidecar:
+  dashboards:
+    enabled: true
+    SCProvider: true
+    label: grafana_dashboard
+    labelValue: "1"
+    resource: configmap
+    searchNamespace: grafana
+    folder: /tmp/dashboards
+    provider:
+      name: sidecarProvider
+      orgid: 1
+      folder: EKS
+      type: file
+      disableDelete: false
+      allowUiUpdates: false
+      foldersFromFilesStructure: false
+
+# Configure DataSource to connect to Prometheus in Prometheus namespace
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      uid: prometheus
+      type: prometheus
+      # Format URL service: http://<service-name>.<namespace>.svc.cluster.local:<port>
+      url: http://prometheus-kube-prometheus-prometheus.prometheus.svc.cluster.local:9090
+      access: proxy
+      isDefault: true
+      editable: false
+    - name: Alertmanager
+      uid: alertmanager
+      type: alertmanager
+      url: http://prometheus-kube-prometheus-alertmanager.prometheus.svc.cluster.local:9093
+      access: proxy
+      editable: false
+      jsonData:
+        implementation: prometheus
+        handleGrafanaManagedAlerts: false
+
+grafana.ini:
+  server:
+    domain: __GRAFANA_DOMAIN__
+    root_url: https://__GRAFANA_DOMAIN__
+    serve_from_sub_path: false

@@ -1,0 +1,392 @@
+name: "Terraform CI - PR Validation"
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/terraform-ci.yml"
+      - ".checkov.yaml"
+      - "environments/dev/**"
+      - "modules/**"
+
+permissions:
+  actions: read
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  TERRAFORM_VERSION: "1.10.5"
+  CHECKOV_VERSION: "3.2.521"
+  AWS_REGION: "ap-southeast-1"
+  WORKING_DIR: "environments/dev"
+  CHECKOV_REPORTS_BUCKET: "checkov-reports-bucket"
+  CHECKOV_REPORTS_PREFIX: ${{ vars.CHECKOV_REPORTS_PREFIX || 'terraform-ci/dev' }}
+  TF_VAR_cluster_admin_principal_arns_json: ${{ vars.EKS_CLUSTER_ADMIN_PRINCIPAL_ARNS || '[]' }}
+
+jobs:
+  infra-validation:
+    name: "Infra Validation"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+    outputs:
+      init_outcome: ${{ steps.init.outcome }}
+      import_outcome: ${{ steps.import.outcome }}
+      fmt_outcome: ${{ steps.fmt.outcome }}
+      validate_outcome: ${{ steps.validate.outcome }}
+      plan_outcome: ${{ steps.plan.outcome }}
+      checkov_outcome: ${{ steps.checkov.outcome }}
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+
+      - name: "Set up Terraform"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: "Set up Python for Checkov"
+        if: always()
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Install Checkov"
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install "checkov==${{ env.CHECKOV_VERSION }}"
+
+      - name: "Configure AWS Credentials"
+        if: always()
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: "Terraform Init"
+        id: init
+        run: terraform init -reconfigure
+
+      - name: "Import existing AWS resources before plan"
+        id: import
+        env:
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
+          TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CLUSTER_NAME=$(awk -F'"' '/^cluster_name[[:space:]]*=/{print $2}' terraform.tfvars)
+          NODEGROUP_NAME="${CLUSTER_NAME}-node-group"
+
+          S3_BUCKET="kltn-mlops-mlflow-artifacts-dev"
+          S3_ADDR="module.mlflow.module.s3.aws_s3_bucket.mlflow_artifact"
+          NODEGROUP_ADDR="module.eks.aws_eks_node_group.main"
+          OIDC_ADDR="module.eks.aws_iam_openid_connect_provider.eks"
+
+          if aws s3api head-bucket --bucket "${S3_BUCKET}" 2>/dev/null; then
+            if ! terraform state show "${S3_ADDR}" >/dev/null 2>&1; then
+              echo "Importing existing S3 bucket: ${S3_BUCKET}"
+              terraform import "${S3_ADDR}" "${S3_BUCKET}"
+            fi
+          fi
+
+          if aws eks describe-nodegroup \
+            --cluster-name "${CLUSTER_NAME}" \
+            --nodegroup-name "${NODEGROUP_NAME}" >/dev/null 2>&1; then
+            if ! terraform state show "${NODEGROUP_ADDR}" >/dev/null 2>&1; then
+              echo "Importing existing EKS node group: ${NODEGROUP_NAME}"
+              terraform import "${NODEGROUP_ADDR}" "${CLUSTER_NAME}:${NODEGROUP_NAME}"
+            fi
+          fi
+
+          OIDC_ISSUER=$(aws eks describe-cluster \
+            --name "${CLUSTER_NAME}" \
+            --query "cluster.identity.oidc.issuer" \
+            --output text 2>/dev/null || true)
+
+          if [ -n "${OIDC_ISSUER}" ] && [ "${OIDC_ISSUER}" != "None" ]; then
+            ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+            OIDC_PROVIDER_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_ISSUER#https://}"
+
+            if aws iam get-open-id-connect-provider \
+              --open-id-connect-provider-arn "${OIDC_PROVIDER_ARN}" >/dev/null 2>&1; then
+              if ! terraform state show "${OIDC_ADDR}" >/dev/null 2>&1; then
+                echo "Importing existing IAM OIDC provider"
+                terraform import "${OIDC_ADDR}" "${OIDC_PROVIDER_ARN}"
+              fi
+            fi
+          fi
+
+      - name: "Terraform Format Check"
+        id: fmt
+        run: terraform fmt -check -recursive -diff ../..
+
+      - name: "Terraform Validate"
+        id: validate
+        env:
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
+          TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
+        run: terraform validate -no-color
+
+      - name: "Terraform Plan"
+        id: plan
+        env:
+          TF_VAR_BASTION_PUBLIC_KEY: ${{ secrets.BASTION_PUBLIC_KEY }}
+          TF_VAR_MLFLOW_DB_PASSWORD: ${{ secrets.MLFLOW_DB_PASSWORD }}
+        run: |
+          set -o pipefail
+          terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan.txt
+
+      - name: "Run Checkov"
+        if: always()
+        id: checkov
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p reports
+          set -o pipefail
+          checkov \
+            --config-file .checkov.yaml \
+            --directory . \
+            --output cli \
+            --output json \
+            --output junitxml \
+            --output-file-path console,reports/checkov.json,reports/checkov.junit.xml | tee reports/checkov-cli.log
+
+      - name: "Persist infra status snapshot"
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p .ci
+          cat > .ci/infra-status.json <<EOF
+          {
+            "job": "infra-validation",
+            "generated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "init_outcome": "${{ steps.init.outcome }}",
+            "import_outcome": "${{ steps.import.outcome }}",
+            "fmt_outcome": "${{ steps.fmt.outcome }}",
+            "validate_outcome": "${{ steps.validate.outcome }}",
+            "plan_outcome": "${{ steps.plan.outcome }}",
+            "checkov_outcome": "${{ steps.checkov.outcome }}"
+          }
+          EOF
+
+      - name: "Upload infra runtime artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-ci-runtime-${{ github.sha }}
+          path: |
+            .ci/infra-status.json
+            environments/dev/plan.txt
+            environments/dev/tfplan
+            reports/checkov-cli.log
+            reports/checkov.json
+            reports/checkov.junit.xml
+          if-no-files-found: warn
+
+  reporting-metrics:
+    name: "Reporting & Metrics"
+    needs: infra-validation
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+
+      - name: "Download infra runtime artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-ci-runtime-${{ github.sha }}
+          path: ${{ github.workspace }}
+
+      - name: "Configure AWS Credentials"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: "Prepare report destinations"
+        if: always()
+        run: |
+          CHECKOV_S3_URI="s3://${{ env.CHECKOV_REPORTS_BUCKET }}/${{ env.CHECKOV_REPORTS_PREFIX }}/sha=${{ github.sha }}/run-id=${{ github.run_id }}/attempt=${{ github.run_attempt }}"
+          echo "CHECKOV_REPORTS_S3_URI=${CHECKOV_S3_URI}" >> "$GITHUB_ENV"
+
+      - name: "Build Checkov summary"
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          CHECKOV_OUTCOME: ${{ needs.infra-validation.outputs.checkov_outcome }}
+          CHECKOV_ARTIFACT_NAME: checkov-junit-${{ github.sha }}
+        run: |
+          node .github/scripts/javascript/checkov/build-checkov-summary.js \
+            reports/checkov.json \
+            reports/checkov-summary.json
+
+      - name: "Collect CI run metadata"
+        if: always()
+        id: ci_metadata
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const headSha = context.payload.pull_request?.head?.sha ?? process.env.GITHUB_SHA;
+            const branch = context.payload.pull_request?.head?.ref ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? '';
+
+            const { data: workflowRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(process.env.GITHUB_RUN_ID),
+            });
+
+            const { data: commit } = await github.rest.repos.getCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: headSha,
+            });
+
+            core.setOutput('branch', branch || workflowRun.head_branch || '');
+            core.setOutput('head_sha', headSha);
+            core.setOutput('run_started_at', workflowRun.run_started_at || '');
+            core.setOutput(
+              'commit_timestamp',
+              commit.commit?.committer?.date || commit.commit?.author?.date || ''
+            );
+
+      - name: "Build CI pipeline metrics report"
+        if: always()
+        working-directory: ${{ github.workspace }}
+        env:
+          ENVIRONMENT_NAME: dev
+          PIPELINE_JOB_NAME: infra-validation
+          PIPELINE_BRANCH: ${{ steps.ci_metadata.outputs.branch }}
+          PIPELINE_SHA: ${{ steps.ci_metadata.outputs.head_sha }}
+          RUN_STARTED_AT: ${{ steps.ci_metadata.outputs.run_started_at }}
+          COMMIT_TIMESTAMP: ${{ steps.ci_metadata.outputs.commit_timestamp }}
+          INFRA_VALIDATION_RESULT: ${{ needs.infra-validation.result }}
+          INIT_OUTCOME: ${{ needs.infra-validation.outputs.init_outcome }}
+          IMPORT_OUTCOME: ${{ needs.infra-validation.outputs.import_outcome }}
+          FMT_OUTCOME: ${{ needs.infra-validation.outputs.fmt_outcome }}
+          VALIDATE_OUTCOME: ${{ needs.infra-validation.outputs.validate_outcome }}
+          PLAN_OUTCOME: ${{ needs.infra-validation.outputs.plan_outcome }}
+          CHECKOV_OUTCOME: ${{ needs.infra-validation.outputs.checkov_outcome }}
+          CHECKOV_SUMMARY_FILE: reports/checkov-summary.json
+        run: |
+          node .github/scripts/javascript/checkov/build-ci-pipeline-metrics.js reports/ci-pipeline-metrics.json
+
+      - name: "Upload Checkov JUnit artifact"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-junit-${{ github.sha }}
+          path: |
+            reports/checkov.junit.xml
+          if-no-files-found: warn
+
+      - name: "Upload Checkov JSON reports to S3"
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ -f reports/checkov-cli.log ]; then
+            aws s3 cp reports/checkov-cli.log "${CHECKOV_REPORTS_S3_URI}/checkov-cli.log" --content-type text/plain
+          fi
+
+          if [ -f reports/checkov.json ]; then
+            aws s3 cp reports/checkov.json "${CHECKOV_REPORTS_S3_URI}/checkov.json" --content-type application/json
+          fi
+
+          if [ -f reports/checkov-summary.json ]; then
+            aws s3 cp reports/checkov-summary.json "${CHECKOV_REPORTS_S3_URI}/checkov-summary.json" --content-type application/json
+          fi
+
+          aws s3 cp reports/ci-pipeline-metrics.json "${CHECKOV_REPORTS_S3_URI}/ci-pipeline-metrics.json" --content-type application/json
+          echo "CI reports uploaded to ${CHECKOV_REPORTS_S3_URI}"
+
+      - name: "Upload Terraform plan to S3"
+        if: always() && needs.infra-validation.outputs.plan_outcome == 'success'
+        working-directory: ${{ github.workspace }}
+        run: |
+          aws s3 cp environments/dev/tfplan s3://kltn-s3-tfstate-dev-env/plans/dev/${{ github.sha }}/tfplan
+          echo "Plan uploaded: plans/dev/${{ github.sha }}/tfplan"
+
+      - name: "Publish Checkov Step Summary"
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          node .github/scripts/javascript/checkov/write-checkov-step-summary.js reports/checkov-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Post Terraform comment on PR"
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          FMT_OUTCOME: ${{ needs.infra-validation.outputs.fmt_outcome }}
+          VALIDATE_OUTCOME: ${{ needs.infra-validation.outputs.validate_outcome }}
+          PLAN_OUTCOME: ${{ needs.infra-validation.outputs.plan_outcome }}
+          COMMIT_SHA: ${{ github.sha }}
+          PLAN_FILE: environments/dev/plan.txt
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const postComment = require('./.github/scripts/javascript/terraform/post-plan-comment.js');
+            await postComment({ github, context });
+
+      - name: "Post Checkov comment on PR"
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          CHECKOV_OUTCOME: ${{ needs.infra-validation.outputs.checkov_outcome }}
+          CHECKOV_SUMMARY_FILE: reports/checkov-summary.json
+          CHECKOV_ARTIFACT_NAME: checkov-junit-${{ github.sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const postComment = require('./.github/scripts/javascript/checkov/post-checkov-comment.js');
+            await postComment({ github, context });
+
+      - name: "Publish final CI overview"
+        if: always()
+        run: |
+          status_icon() {
+            case "$1" in
+              success) echo "✅" ;;
+              failure) echo "⚠️" ;;
+              skipped) echo "⏭️" ;;
+              cancelled) echo "🛑" ;;
+              *) echo "❔" ;;
+            esac
+          }
+
+          {
+            echo "## 🟢 CI Overview"
+            echo ""
+            echo "> ⚠️ Terraform and core infra checks are blocking. Checkov remains advisory and is reported separately."
+            echo ""
+            echo "| Job | Outcome |"
+            echo "|-----|---------|"
+            echo "| Infra Validation | $(status_icon '${{ needs.infra-validation.result }}') \`${{ needs.infra-validation.result }}\` |"
+            echo ""
+            echo "| Infra Step | Outcome |"
+            echo "|------------|---------|"
+            echo "| Terraform Init | $(status_icon '${{ needs.infra-validation.outputs.init_outcome }}') \`${{ needs.infra-validation.outputs.init_outcome }}\` |"
+            echo "| Resource Import | $(status_icon '${{ needs.infra-validation.outputs.import_outcome }}') \`${{ needs.infra-validation.outputs.import_outcome }}\` |"
+            echo "| Terraform Format | $(status_icon '${{ needs.infra-validation.outputs.fmt_outcome }}') \`${{ needs.infra-validation.outputs.fmt_outcome }}\` |"
+            echo "| Terraform Validate | $(status_icon '${{ needs.infra-validation.outputs.validate_outcome }}') \`${{ needs.infra-validation.outputs.validate_outcome }}\` |"
+            echo "| Terraform Plan | $(status_icon '${{ needs.infra-validation.outputs.plan_outcome }}') \`${{ needs.infra-validation.outputs.plan_outcome }}\` |"
+            echo "| Checkov | $(status_icon '${{ needs.infra-validation.outputs.checkov_outcome }}') \`${{ needs.infra-validation.outputs.checkov_outcome }}\` |"
+            echo ""
+
+            if [ -n "${CHECKOV_REPORTS_S3_URI:-}" ]; then
+              echo "> ☁️ Checkov reports: \`${CHECKOV_REPORTS_S3_URI}\`"
+              echo "> 📈 CI pipeline metrics JSON: \`${CHECKOV_REPORTS_S3_URI}/ci-pipeline-metrics.json\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

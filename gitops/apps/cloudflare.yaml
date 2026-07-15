@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudflare
+  namespace: argocd
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudflare
+  sources:
+    - repoURL: https://cloudflare.github.io/helm-charts
+      chart: cloudflare-tunnel
+      targetRevision: "*"
+      helm:
+        releaseName: cloudflared
+        valueFiles:
+          - $values/modules/cloudflare/cloudflare-values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
+  syncPolicy:
+    # No automated sync: cloudflare tunnel is bootstrapped by phase2 (Helm with rendered values).
+    # Values file in Git contains placeholders (__TUNNEL_ID__, __ARGOCD_DOMAIN__, etc.)
+    # and must NOT be applied by ArgoCD. ArgoCD is used for health monitoring only.
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Secret
+      name: cloudflared-cloudflare-tunnel
+      jsonPointers:
+        - /data/credentials.json

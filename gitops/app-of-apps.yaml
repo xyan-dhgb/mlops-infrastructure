@@ -1,0 +1,34 @@
+# This file defines Workload, define what to do
+# Deployment / Pod in EKS
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: k8s-infra-addons
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+    targetRevision: dev
+    path: gitops/apps
+    directory:
+      recurse: true
+      include: "*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false # DON'T delete Application when delete file from Git
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Application
+      jsonPointers:
+        - /spec/source/helm/parameters

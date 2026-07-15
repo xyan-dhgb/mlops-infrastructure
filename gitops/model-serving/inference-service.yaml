@@ -1,0 +1,63 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: skin-prediction
+  namespace: model-serving
+  annotations:
+    # KServe RawDeployment: Create standard K8s Deployment + Service, without using Knative/Istio
+    serving.kserve.io/deploymentMode: "RawDeployment"
+spec:
+  predictor:
+    tolerations:
+      - key: "workload"
+        operator: "Equal"
+        value: "ml"
+        effect: "NoSchedule"
+
+    containers:
+      - name: kserve-container
+        # Image is automatically updated by CI/CD after each successful build
+        # Format tag: skin-cancer-predictor-YYYYMMDD-HHmmss (UTC)
+        image: 248563009693.dkr.ecr.ap-southeast-1.amazonaws.com/skin-cancer-predictor:skin-cancer-predictor-20260630-152608
+
+        env:
+          # STORAGE_URI triggers KServe to auto-inject storage-initializer init container.
+          # The init container downloads all files from this S3 prefix into /mnt/models:
+          #   s3://kltn-isic-2024-colab/final/best_model_isic2024.h5 → /mnt/models/
+          #   s3://kltn-isic-2024-colab/final/encoders.pkl           → /mnt/models/
+          #   s3://kltn-isic-2024-colab/final/best_threshold.txt     → /mnt/models/
+          # serving.py loads artifacts from /mnt/models (see MODEL_PATH, PREPROCESSORS_PATH)
+          - name: STORAGE_URI
+            value: "s3://kltn-isic-2024-colab/final"
+
+
+        ports:
+          - name: http
+            containerPort: 8080
+            protocol: TCP
+
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+
+        # KServe health endpoint: /v1/models/{metadata.name}
+        # metadata.name = "skin-prediction" → path phải khớp
+        readinessProbe:
+          httpGet:
+            path: /v1/models/skin-prediction
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 5
+
+        livenessProbe:
+          httpGet:
+            path: /v1/models/skin-prediction
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          failureThreshold: 3

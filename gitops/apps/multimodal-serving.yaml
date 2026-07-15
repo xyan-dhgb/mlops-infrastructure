@@ -1,0 +1,53 @@
+# This application manages KServe InferenceService deployment
+# When inference-service.yaml changes on Git, ArgoCD will automatically detect and apply changes to the cluster
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: multimodal-serving
+  namespace: argocd
+  annotations:
+    # Deploy AFTER kserve (sync-wave: "2") is Healthy - KServe webhook must be ready
+    # before InferenceService can be created, otherwise sync fails with "no endpoints"
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+    targetRevision: dev
+    path: gitops/model-serving
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: model-serving
+  syncPolicy:
+    automated:
+      prune: false       # Do not delete InferenceService when deleting the file from Git
+      selfHeal: true     # Self-healing if someone manually modifies on the cluster
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+      - SkipDryRunOnMissingResource=true
+      - ServerSideApply=true   # Avoid conflict resourceVersion with KServe controller
+  ignoreDifferences:
+    # KServe controller manages replicas of the underlying Deployment
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    # KServe controller is the owner of .status - ArgoCD should not override
+    - group: serving.kserve.io
+      kind: InferenceService
+      jsonPointers:
+        - /status
+    # KServe mutating webhook inject defaults to spec after apply
+    - group: serving.kserve.io
+      kind: InferenceService
+      jqPathExpressions:
+        - .spec.predictor.model
+        - .spec.predictor.sklearn
+        - .spec.predictor.tensorflow
+        - .spec.predictor.pytorch
+        - .spec.predictor.containers[].resources
+        - .metadata.annotations["serving.kserve.io/deploymentMode"]

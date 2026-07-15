@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kserve
+  namespace: argocd
+  annotations:
+    # Install after cert-manager (sync-wave: "1")
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kserve
+  sources:
+    # OCI repo must be registered in ArgoCD: argocd repo add oci://ghcr.io/kserve/charts --type helm --name kserve-charts --enable-oci
+    - repoURL: ghcr.io/kserve/charts
+      chart: kserve
+      targetRevision: v0.13.1
+      helm:
+        releaseName: kserve
+        valueFiles:
+          - $values/modules/kserve/kserve-values.yaml
+    - repoURL: https://github.com/xyan-dhgb/mlops-infrastructure.git
+      targetRevision: dev
+      ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    # KServe controller injects caBundle into Webhook → ignore this diff
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    # KServe controller automatically manages replicas of the controller
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    # .status.terminatingReplicas is written by the KServe controller at runtime
+    # but is not declared in the CRD schema for v0.13.1 — ArgoCD cannot build a
+    # typed value from an undeclared field, causing a permanent ComparisonError.
+    - group: serving.kserve.io
+      kind: InferenceService
+      jsonPointers:
+        - /status/terminatingReplicas

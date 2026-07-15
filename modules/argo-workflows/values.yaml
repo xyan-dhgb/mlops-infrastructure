@@ -1,0 +1,65 @@
+# Helm values for argoproj/argo-workflows.
+# The UI is kept internal; use kubectl/SSM port-forward from inside the VPC when needed.
+
+crds:
+  install: true
+  keep: true
+  full: true
+
+singleNamespace: false
+
+workflow:
+  namespace: argo-workflows
+
+controller:
+  workflowNamespaces:
+    - argo-workflows
+    - kltn-mul-mlops
+  metricsConfig:
+    enabled: true
+  telemetryConfig:
+    enabled: true
+  serviceMonitor:
+    enabled: true              # Tạo ServiceMonitor → Prometheus tự scrape /metrics port 9090
+    additionalLabels:
+      release: prometheus      # Phải match label selector của kube-prometheus-stack
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+server:
+  enabled: true
+  authModes:
+    - server
+  secure: false
+  serviceType: ClusterIP
+  ingress:
+    enabled: false
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# Artifact repository for archiveLogs — persists container logs to S3.
+# Fixes: "unable to retrieve container logs for containerd://"
+artifactRepository:
+  archiveLogs: true
+  s3:
+    bucket: kltn-argo-workflows-logs
+    region: ap-southeast-1
+    useSDKCreds: true
+    insecure: false
+    keyFormat: "{{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/{{workflow.creationTimestamp.d}}/{{workflow.name}}/{{pod.name}}/main.log"
+    accessKeySecret:
+      name: ""
+      key: "accessKey"
+    secretKeySecret:
+      name: ""
+      key: "secretKey"

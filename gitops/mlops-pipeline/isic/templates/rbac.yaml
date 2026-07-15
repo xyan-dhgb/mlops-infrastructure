@@ -1,0 +1,38 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: isic-ml-workflow
+  namespace: {{ .Values.global.namespace }}
+  labels: {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
+  - apiGroups: [argoproj.io]
+    resources: [workflows]
+    verbs: [get, list, watch, patch]
+  # Required for archiveLogs: true - wait sidecar reads ArtifactRepository CR
+  - apiGroups: [argoproj.io]
+    resources: [artifactrepositories]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: isic-ml-workflow
+  namespace: {{ .Values.global.namespace }}
+  labels: {{ include "isic-ml-pipeline.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: isic-ml-workflow
+subjects:
+  - kind: ServiceAccount
+    name: isic-ml-workflow
+    namespace: {{ .Values.global.namespace }}

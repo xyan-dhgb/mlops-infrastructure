@@ -1,0 +1,122 @@
+name: "ArgoCD Bootstrap - GitOps App-of-Apps"
+# Flow:
+#  Phase 1 - EC2 Instance Connect (1 time, <30s): Install and start SSM Agent
+#  Phase 3 - AWS SSM: Deploy AppProject and App-of-Apps to trigger GitOps sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      eks_cluster_name:
+        description: "Tên EKS cluster"
+        required: true
+        default: "mlops-infr-dev-eks"
+        type: string
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: "ap-southeast-1"
+
+jobs:
+  bootstrap:
+    name: "Bootstrap ArgoCD GitOps"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Phase 1: EC2 Instance Connect and start SSM Agent
+      - name: "Phase 1: Start SSM Agent on Bastion"
+        run: |
+          echo "CLUSTER_NAME=${{ github.event.inputs.eks_cluster_name }}" >> "$GITHUB_ENV"
+          chmod +x .github/scripts/bash/phase1-start-ssm-agent.sh
+          bash .github/scripts/bash/phase1-start-ssm-agent.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          BASTION_PRIVATE_KEY: ${{ secrets.BASTION_PRIVATE_KEY }}
+
+      # Phase 3: ArgoCD GitOps Bootstrap via SSM
+      - name: "Phase 3: Bootstrap GitOps"
+        id: argocd_bootstrap
+        run: |
+          chmod +x .github/scripts/bash/ssm-run.sh .github/scripts/bash/phase3-argocd-bootstrap.sh
+          bash .github/scripts/bash/phase3-argocd-bootstrap.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          INSTANCE_ID: ${{ env.INSTANCE_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      # Phase 4: Inject AWS_ACCOUNT_ID into ArgoCD Application Helm parameters
+      # Logic is in .github/scripts/bash/phase4-inject-account.sh
+      - name: "Set up Terraform (for reading outputs)"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: "Phase 4 (pre): Read IRSA role ARN from Terraform output"
+        id: tf_output
+        working-directory: environments/${{ github.event.inputs.environment }}
+        run: |
+          terraform init -reconfigure -input=false -no-color > /dev/null
+          ROLE_ARN=$(terraform output -raw ml_pipeline_irsa_role_arn)
+          EFS_ID=$(terraform output -raw efs_file_system_id)
+          CA_ROLE_ARN=$(terraform output -raw cluster_autoscaler_irsa_role_arn)
+          echo "ML_PIPELINE_IRSA_ROLE_ARN=${ROLE_ARN}" >> "$GITHUB_ENV"
+          echo "EFS_FILE_SYSTEM_ID=${EFS_ID}" >> "$GITHUB_ENV"
+          echo "CLUSTER_AUTOSCALER_IRSA_ROLE_ARN=${CA_ROLE_ARN}" >> "$GITHUB_ENV"
+          echo "ℹ️ IRSA Role ARN: ${ROLE_ARN}"
+          echo "ℹ️ EFS ID: ${EFS_ID}"
+          echo "ℹ️ CA Role ARN: ${CA_ROLE_ARN}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+      - name: "Phase 4: Set Helm parameters - ECR registry & IRSA role ARN"
+        id: patch_isic_pipeline
+        run: |
+          chmod +x .github/scripts/bash/ssm-run.sh .github/scripts/bash/phase4-inject-account.sh
+          bash .github/scripts/bash/phase4-inject-account.sh
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          INSTANCE_ID: ${{ env.INSTANCE_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          ML_PIPELINE_IRSA_ROLE_ARN: ${{ env.ML_PIPELINE_IRSA_ROLE_ARN }}
+          EFS_FILE_SYSTEM_ID: ${{ env.EFS_FILE_SYSTEM_ID }}
+          CLUSTER_AUTOSCALER_IRSA_ROLE_ARN: ${{ env.CLUSTER_AUTOSCALER_IRSA_ROLE_ARN }}
+
+      # Summary
+      - name: Post bootstrap summary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << 'EOF'
+          ## ArgoCD GitOps Bootstrap — ${{ github.event.inputs.environment }}
+
+          | Component                    | Status |
+          |------------------------------|--------|
+          | AppProject & App-of-Apps     | `${{ steps.argocd_bootstrap.outcome }}` |
+          | ISIC Pipeline Helm params    | `${{ steps.patch_isic_pipeline.outcome }}` |
+          EOF

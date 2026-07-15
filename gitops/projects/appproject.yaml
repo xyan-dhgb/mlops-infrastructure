@@ -1,0 +1,44 @@
+# approject is about security boundary, define what can be done
+# IAM Policy / Namespace in EKS
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: "MLOps platform add-ons, adopted from SSM pipeline"
+  sourceRepos:
+    - "*"
+  destinations:
+    - namespace: kube-system
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+    - namespace: argo-workflows
+      server: https://kubernetes.default.svc
+    - namespace: mlflow
+      server: https://kubernetes.default.svc
+    - namespace: prometheus
+      server: https://kubernetes.default.svc
+    - namespace: grafana
+      server: https://kubernetes.default.svc
+    - namespace: cloudflare
+      server: https://kubernetes.default.svc
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
+    - namespace: kltn-mul-mlops
+      server: https://kubernetes.default.svc
+    - namespace: model-serving
+      server: https://kubernetes.default.svc
+    - namespace: cert-manager
+      server: https://kubernetes.default.svc
+    - namespace: kserve
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: false

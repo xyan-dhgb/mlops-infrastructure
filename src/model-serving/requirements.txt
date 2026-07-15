@@ -1,0 +1,23 @@
+# Model Serving Framework
+kserve==0.13.1
+
+# Deep Learning
+tensorflow-cpu==2.15.0
+tf-keras==2.15.0
+
+# Data Processing
+numpy>=1.24,<2.0
+pandas>=2.0
+scikit-learn>=1.3
+scipy>=1.11          # runtime dependency of scikit-learn
+joblib>=1.3
+
+# Image Processing
+Pillow>=10.0
+opencv-python-headless>=4.8
+
+# Model Artifact Loading
+h5py>=3.9
+
+# Monitorings
+prometheus-client>=0.20

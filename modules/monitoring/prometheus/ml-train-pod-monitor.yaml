@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ml-train-pod-metrics
+  namespace: prometheus
+  labels:
+    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus-stack
+spec:
+  # Scrape pods ở namespace kltn-mul-mlops có label metrics=enabled
+  namespaceSelector:
+    matchNames:
+      - kltn-mul-mlops
+  selector:
+    matchLabels:
+      metrics: enabled           # label này thêm vào train pod (xem workflow-template.yaml)
+  podMetricsEndpoints:
+    - port: metrics              # port name 8000 trong train pod
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
