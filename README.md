@@ -199,7 +199,7 @@ Cuối cùng, hệ thống sử dụng các **IAM Role** riêng biệt cho **EKS
 
 #### Xây dựng cơ chế Helm Bootstrap thông qua AWS Systems Manager
 
-_Mã nguồn tham khảo: [modules/bastion-host](/modules/bastion-host)_
+_Mã nguồn tham khảo: [modules/bastion-host](/modules/bastion-host), [.github/workflows/helm-bootstrap.yml](/.github/workflows/helm-bootstrap.yml), [.github/scripts/bash/phase2-install-addons.sh](/.github/scripts/bash/phase2-install-addons.sh)_
 
 ![Kiến trúc Helm Bootstrap sử dụng AWS Systems Manager](/asset/image/SSM-Bastion_host.png)
 
@@ -270,7 +270,7 @@ Bên cạnh đó, một **AppProject** có tên **platform** được thiết l�
 
 #### Quy trình bootstrap tự động bằng GitHub Actions
 
-_Mã nguồn tham khảo: [.github/workflows/](/.github/workflows)_
+_Mã nguồn tham khảo: [.github/workflows/argocd-bootstrap.yml](/.github/workflows/argocd-bootstrap.yml), [.github/scripts/bash/phase3-argocd-bootstrap.sh](/.github/scripts/bash/phase3-argocd-bootstrap.sh)_
 
 Quá trình bootstrap được tự động hóa thông qua workflow trên GitHub Actions. Workflow này sử dụng AWS SSM để thực thi lệnh từ xa trên Bastion Host mà không cần mở cổng SSH, tương tự như quy trình Helm bootstrap đã trình bày ở mục trước.
 

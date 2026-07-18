@@ -198,7 +198,7 @@ Finally, the system uses separate **IAM Roles** for the **EKS Control Plane** an
 
 #### Building Helm Bootstrap Mechanism via AWS Systems Manager
 
-_Code reference: [modules/bastion-host](/modules/bastion-host)_
+_Code reference: [modules/bastion-host](/modules/bastion-host), [.github/workflows/helm-bootstrap.yml](/.github/workflows/helm-bootstrap.yml), [.github/scripts/bash/phase2-install-addons.sh](/.github/scripts/bash/phase2-install-addons.sh)_
 
 ![Helm Bootstrap Architecture using AWS Systems Manager](/asset/image/SSM-Bastion_host.png)
 
@@ -269,7 +269,7 @@ In addition, an **AppProject** named **platform** is set up to limit the operati
 
 #### Automated Bootstrap Process using GitHub Actions
 
-_Code reference: [.github/workflows/](/.github/workflows)_
+_Code reference: [.github/workflows/argocd-bootstrap.yml](/.github/workflows/argocd-bootstrap.yml), [.github/scripts/bash/phase3-argocd-bootstrap.sh](/.github/scripts/bash/phase3-argocd-bootstrap.sh)_
 
 The bootstrap process is automated via a workflow on GitHub Actions. This workflow uses AWS SSM to execute remote commands on the Bastion Host without opening SSH ports, similar to the Helm bootstrap process presented in the previous section.
 
