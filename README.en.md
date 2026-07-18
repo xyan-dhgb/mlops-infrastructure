@@ -9,6 +9,7 @@
 ## TABLE OF CONTENTS
 
 - [Abstract](#abstract)
+- [Directory Structure](#directory-structure)
 - [Skin Cancer Situation](#skin-cancer-situation)
 - [Theoretical Basis](#theoretical-basis)
     - [Overview of Skin Cancer](#overview-of-skin-cancer)
@@ -46,6 +47,20 @@ After researching the issue, the student group proceeded to build a **Machine Le
 This topic uses the **SLICE-3D** dataset from the **ISIC** organization from the Kaggle platform, including types of skin lesion images and clinical features. After handling data imbalance, the student group proceeded to build a multimodal deep learning model combining information from dermatological images and clinical data. The image branch uses **EfficientNetB3** to extract image features, while the tabular data branch is built on an **MLP** network. Features from both branches are fused together before being fed into a classifier to predict whether the skin lesion belongs to the **Malignant** or **Benign** group.
 
 Experimental results show that the multimodal model achieves higher efficiency in balancing cancer detection capabilities and false alarm rates compared to many unimodal models. In addition, in terms of infrastructure, the built MLOps architecture automates the model development and deployment process, improving the system's reproducibility, manageability, and scalability.
+
+## DIRECTORY STRUCTURE
+
+```text
+.
+├── .github/          # GitHub Actions workflows for infrastructure and model CI/CD pipelines
+├── asset/            # Image assets used in the documentation
+├── docs/             # System design documents, diagrams, guides, and plans
+├── environments/     # Terraform configurations (variables, backend) for environments (e.g., dev)
+├── gitops/           # Kubernetes manifests managed by ArgoCD (App-of-Apps, Helm values)
+├── modules/          # Reusable Terraform modules for AWS infrastructure (VPC, EKS, MLflow, Argo, KServe...)
+├── src/              # Machine learning model source code (Serving, XAI, etc.)
+└── web/              # Frontend web interface source code (React/Vite) for predictions
+```
 
 ## SKIN CANCER SITUATION
 
@@ -118,6 +133,8 @@ In addition, a **data drift** monitoring mechanism is built to track changes in 
 
 ### Infrastructure as Code Development and Management
 
+_Code reference: [environments/dev](/environments/dev), [modules/](/modules)_
+
 ![Infrastructure Management Plan](/asset/image/git-workflow.png)
 
 The figure above describes the Infrastructure as Code (IaC) deployment plan using **Terraform** combined with **GitHub Actions**. The process is built to automate the steps of checking, evaluating, and deploying infrastructure on the **AWS** platform, helping minimize manual errors, ensure consistency, and improve change management capabilities throughout the development lifecycle.
@@ -142,6 +159,8 @@ During development, testing, or when an environment is no longer needed, cleanin
 - **Terraform Destroy:** Executes the process of deleting AWS resources managed by Terraform based on information in the Terraform State file.
 
 ### Building EKS Infrastructure
+
+_Code reference: [modules/eks](/modules/eks), [modules/vpc](/modules/vpc)_
 
 This is the architecture for deploying a **Kubernetes** cluster on **AWS** following a **Multi-AZ** model to ensure high availability, fault tolerance, and service continuity.
 
@@ -179,6 +198,8 @@ Finally, the system uses separate **IAM Roles** for the **EKS Control Plane** an
 
 #### Building Helm Bootstrap Mechanism via AWS Systems Manager
 
+_Code reference: [modules/bastion-host](/modules/bastion-host)_
+
 ![Helm Bootstrap Architecture using AWS Systems Manager](/asset/image/SSM-Bastion_host.png)
 
 To ensure the initialization process of necessary applications on the **EKS** cluster is performed automatically, securely, and independently of direct **SSH** access, the student group implemented a Helm Bootstrap mechanism via **AWS Systems Manager**. This architecture allows the group to trigger a pipeline from **GitHub Actions**, then use **AWS Systems Manager** to establish secure connections to the **Bastion** servers within the **VPC**.
@@ -186,6 +207,8 @@ To ensure the initialization process of necessary applications on the **EKS** cl
 **Bastion Hosts** are deployed in **public subnets** across multiple **Availability Zones** to increase system availability. Through the **SSM Agent** installed on the **Bastion Host**, the pipeline can create **SSM Tunnel** sessions to execute **Kubernetes** administrative commands without opening the **SSH** port to the **Internet**. From the **Bastion Host**, **Helm** commands are used to interact with the **EKS** cluster located entirely in **private subnets**.
 
 #### Deploying MLOps Platform Components
+
+_Code reference: [gitops/apps](/gitops/apps)_
 
 ![Application Deployment Results](/asset/image/helm-bootstrap-result.png)
 
@@ -208,6 +231,8 @@ In addition, MLflow is configured to use two separate storage components:
 - **Backend Store**: Stores metadata of experiments and model management information.
 
 ### Accessing Internal Interfaces of Applications on the EKS Cluster
+
+_Code reference: [modules/cloudflare](/modules/cloudflare), [gitops/apps/cloudflare.yaml](/gitops/apps/cloudflare.yaml)_
 
 ![Cloudflare Tunnel Configuration Deployed in EKS Cluster](/asset/image/cloudflare-eks.png)
 
@@ -232,6 +257,8 @@ After completing the Helm bootstrap process through the [Integrating Platform Ap
 
 #### App-of-Apps Model and AppProject
 
+_Code reference: [gitops/app-of-apps.yaml](/gitops/app-of-apps.yaml), [gitops/projects/appproject.yaml](/gitops/projects/appproject.yaml)_
+
 The system includes many infrastructure components and training pipelines. If each component is declared independently in ArgoCD, management will become extremely complex as the number of applications increases or when dependencies exist between them. Therefore, the student group applied the **App-of-Apps** design pattern, in which only a single parent application named **k8s-infra-addons** is declared and points to the **gitops/apps/** directory in the Git source code repository. ArgoCD will automatically read the manifests in this directory to create and manage the corresponding child applications.
 
 ![App-of-Apps Model](/asset/image/appofapp.png)
@@ -241,6 +268,8 @@ In addition, an **AppProject** named **platform** is set up to limit the operati
 ![Applications belonging to AppProject platform](/asset/image/platform-scope.png)
 
 #### Automated Bootstrap Process using GitHub Actions
+
+_Code reference: [.github/workflows/](/.github/workflows)_
 
 The bootstrap process is automated via a workflow on GitHub Actions. This workflow uses AWS SSM to execute remote commands on the Bastion Host without opening SSH ports, similar to the Helm bootstrap process presented in the previous section.
 
@@ -253,6 +282,8 @@ Next, the workflow triggers the sync process of child applications belonging to 
 Besides static configurations stored in Git, some parameters are only determined after Terraform completes the infrastructure initialization process, such as IRSA's ARN, Amazon EFS's ID, or the EKS cluster name. Instead of storing these values directly in the Git repository, the workflow reads them from Terraform Outputs and updates them into Application objects via the _kubectl patch_ command. This approach helps separate static configurations from environment-dependent values while maintaining the reusability of the Git repository across multiple different deployment environments.
 
 ### Continuous Integration for Multimodal Deep Learning Source Code
+
+_Code reference: [.github/workflows/](/.github/workflows)_
 
 ![Continuous Integration for Multimodal Deep Learning Source Code](/asset/image/mul-ci-pipeline-final.png)
 
@@ -267,6 +298,8 @@ Next, **Job 2** performs Unit Testing with pytest to verify the correctness of c
 On the infrastructure side, ArgoCD continuously monitors the Helm manifest repository and automatically syncs the EKS cluster state to the exact declared configuration.
 
 ### Deploying Training Pipeline on Argo Workflows
+
+_Code reference: [gitops/mlops-pipeline/isic](/gitops/mlops-pipeline/isic)_
 
 After the CI process of the multimodal deep learning source code is completed and the Docker image containing the entire training environment is pushed to Amazon ECR, Argo Workflows takes that image to execute the multimodal deep learning model training pipeline on the EKS cluster.
 
@@ -288,6 +321,8 @@ Thanks to being deployed as an Argo Workflow on Kubernetes, the entire process h
 
 ### Managing and Tracking Training Experiments
 
+_Code reference: [modules/mlflow](/modules/mlflow), [gitops/apps/mlflow.yaml](/gitops/apps/mlflow.yaml)_
+
 To support machine learning model lifecycle management and increase the reproducibility of research results, the student group integrated **MLflow** as a platform for tracking and managing training experiments. **MLflow** allows recording all information related to the training process, including hyperparameters, evaluation metrics, and the execution history of each run.
 
 In the thesis, **MLflow** is deployed on the **Amazon EKS** cluster and integrated directly into the training pipeline. Every time the training process is triggered from **Argo Workflows**, information such as input image size, number of training samples, class weights, execution time, and evaluation metrics will be automatically logged to **MLflow**. This helps minimize manual operations while ensuring consistency in managing experiments.
@@ -297,6 +332,8 @@ The figure below illustrates the **MLflow Tracking** interface of the system. Th
 ![Managing experiments on MLflow](/asset/image/mlflow-exp.png)
 
 ### Building Model Inference Service with KServe Custom Predictor
+
+_Code reference: [src/model-serving](/src/model-serving)_
 
 To bring the multimodal deep learning model into the operational environment, the group built a custom inference service based on KServe Custom Predictor.
 
@@ -311,6 +348,8 @@ The inference service communicates with the outside world adhering to the **KSer
 ![Endpoint of model inference service](/asset/image/api-syntax.png)
 
 ### Building Continuous Integration and Continuous Deployment Pipeline for Inference Service
+
+_Code reference: [.github/workflows/](/.github/workflows)_
 
 ![Continuous Integration and Continuous Deployment Model for Inference Service](/asset/image/serving-cicd-pipeline.png)
 
@@ -331,6 +370,8 @@ After the sync process completes, the inference service is provided through KSer
 ![Testing API response results](/asset/image/post-method-result.png)
 
 ### Developing Monitoring and Data Visualization System
+
+_Code reference: [modules/monitoring](/modules/monitoring)_
 
 In an MLOps environment, monitoring does not stop at the model training or deployment process but must also simultaneously observe many different system layers, from the physical state of the Kubernetes cluster, the availability of application services, the progress and cost of the training loop, to the quality of the infrastructure's CI/CD process. An incident occurring at any layer can directly affect the stability of the system. Therefore, the group built a centralized monitoring system based on Prometheus and Grafana to provide comprehensive observability for the MLOps platform.
 

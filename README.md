@@ -5,10 +5,12 @@
 - Thành viên thực hiện:
     - Đinh Huỳnh Gia Bảo (22520101@gm.uit.edu.vn)
     - Trần Gia Bảo (22520117@gm.uit.edu.vn)
+- [Bản báo cáo tiếng Anh ở đây](/README.en.md)
 
 ## MỤC LỤC
 
 - [Tóm tắt](#tóm-tắt)
+- [Cấu trúc thư mục](#cấu-trúc-thư-mục)
 - [Tình hình bệnh ung thư da](#tình-hình-bệnh-ung-thư-da)
 - [Cơ sở lý thuyết](#cơ-sở-lý-thuyết)
     - [Tổng quan về ung thư da](#tổng-quan-về-ung-thư-da)
@@ -46,6 +48,20 @@ Sau khi tìm hiểu và nghiên cứu vấn đề, nhóm sinh viên đã tiến 
 Trong đề tài này sử dụng bộ dữ liệu **SLICE-3D** của tổ chức **ISIC** đến từ nền tảng Kaggle gồm các loại hình ảnh ảnh tổn thương da và các đặc trưng lâm sàng. Sau khi xử lý mất cân bằng dữ liệu, nhóm sinh viên tiến hành xây dựng mô hình học sâu đa phương thức kết hợp thông tin từ ảnh da liễu và dữ liệu lâm sàng. Nhánh ảnh sử dụng **EfficientNetB3** để trích xuất đặc trưng hình ảnh, trong khi nhánh dữ liệu bảng được xây dựng trên mạng **MLP**. Các đặc trưng từ hai nhánh được hợp nhất với nhau trước khi đưa vào bộ phân loại nhằm dự đoán tổn thương da thuộc nhóm **ác tính (Malignant)** hay **lành tính (Benign)**.
 
 Kết quả thực nghiệm cho thấy mô hình đa phương thức đạt hiệu quả cao hơn trong việc cân bằng giữa khả năng phát hiện ung thư và tỷ lệ cảnh báo nhầm so với nhiều mô hình đơn phương thức. Ngoài ra, trên phương diện hạ tầng, kiến trúc MLOps được xây dựng giúp tự động hóa quy trình phát triển và triển khai mô hình, nâng cao khả năng tái lập, quản lý và mở rộng hệ thống.
+
+## CẤU TRÚC THƯ MỤC
+
+```text
+.
+├── .github/          # GitHub Actions workflows cho quy trình CI/CD hạ tầng và mô hình
+├── asset/            # Chứa các tệp hình ảnh được sử dụng trong tài liệu
+├── docs/             # Tài liệu thiết kế hệ thống, sơ đồ, hướng dẫn và kế hoạch
+├── environments/     # Cấu hình Terraform (thông số, backend) cho các môi trường (dev)
+├── gitops/           # Các manifest Kubernetes được quản lý bởi ArgoCD (App-of-Apps, Helm values)
+├── modules/          # Các module Terraform độc lập để xây dựng hạ tầng AWS (VPC, EKS, MLflow, Argo, KServe...)
+├── src/              # Mã nguồn phục vụ mô hình học máy (Serving, XAI, ...)
+└── web/              # Mã nguồn giao diện web Frontend (React/Vite) phục vụ dự đoán
+```
 
 ## TÌNH HÌNH BỆNH UNG THƯ DA
 
@@ -118,6 +134,8 @@ Bên cạnh đó, cơ chế giám sát **data drift** được xây dựng nhằ
 
 ### Xây dựng và quản hạ tầng dưới dạng mã nguồn
 
+_Mã nguồn tham khảo: [environments/dev](/environments/dev), [modules/](/modules)_
+
 ![Kế hoạch quản lý hạ tầng](/asset/image/git-workflow.png)
 
 Hình trên mô tả kế hoạch triển khai hạ tầng dưới dạng mã (IaC) sử dụng **Terraform** kết hợp với **GitHub Actions**. Quy trình được xây dựng nhằm tự động hóa các bước kiểm tra, đánh giá và triển khai hạ tầng trên nền tảng **AWS**, giúp giảm thiểu sai sót thủ công, tính nhất quán và nâng cao khả năng quản lý thay đổi trong suốt vòng đời phát triển.
@@ -142,6 +160,8 @@ Trong quá trình phát triển, kiểm thử hoặc khi môi trường không c
 - **Terraform Destroy:** Thực hiện quá trình xóa các tài nguyên AWS được quản lý bởi Terraform dựa trên thông tin trong tệp trạng thái Terraform State.
 
 ### Xây dựng hạ tầng EKS
+
+_Mã nguồn tham khảo: [modules/eks](/modules/eks), [modules/vpc](/modules/vpc)_
 
 Đây là kiến trúc triển khai một cụm **Kubernetes** trên **AWS** theo mô hình **Multi-AZ** nhằm đảm bảo tính sẵn sàng, khả năng chịu lỗi và đảm bảo tính liên tục của dịch vụ.
 
@@ -179,6 +199,8 @@ Cuối cùng, hệ thống sử dụng các **IAM Role** riêng biệt cho **EKS
 
 #### Xây dựng cơ chế Helm Bootstrap thông qua AWS Systems Manager
 
+_Mã nguồn tham khảo: [modules/bastion-host](/modules/bastion-host)_
+
 ![Kiến trúc Helm Bootstrap sử dụng AWS Systems Manager](/asset/image/SSM-Bastion_host.png)
 
 Nhằm đảm bảo quá trình khởi tạo các ứng dụng cần thiết trên cụm **EKS** được thực hiện tự động, bảo mật và không phụ thuộc vào truy cập **SSH** trực tiếp, nhóm sinh viên đã triển khai cơ chế Helm Bootstrap thông qua **AWS Systems Manager**. Kiến trúc này cho phép nhóm kích hoạt một pipeline từ **GitHub Actions**, sau đó sử dụng **AWS Systems Manager** để thiết lập kết nối bảo mật đến các máy chủ **Bastion** trong **VPC**.
@@ -186,6 +208,8 @@ Nhằm đảm bảo quá trình khởi tạo các ứng dụng cần thiết tr�
 Các **Bastion Host** được triển khai trong các **public subnet** thuộc nhiều **Availability Zone** nhằm tăng tính sẵn sàng của hệ thống. Thông qua **SSM Agent** được cài đặt trên **Bastion Host**, pipeline có thể tạo các phiên **SSM Tunnel** để thực thi các lệnh quản trị **Kubernetes** mà không cần mở cổng **SSH** ra **Internet**. Từ **Bastion Host**, các lệnh **Helm** được sử dụng để tương tác với cụm **EKS** nằm hoàn toàn trong **private subnet**.
 
 #### Triển khai các thành phần nền tảng MLOps
+
+_Mã nguồn tham khảo: [gitops/apps](/gitops/apps)_
 
 ![Kết quả triển khai các ứng dụng](/asset/image/helm-bootstrap-result.png)
 
@@ -208,6 +232,8 @@ Bên cạnh đó, MLflow được cấu hình sử dụng hai thành phần lưu
 - **Backend Store**: Lưu trữ metadata của các thí nghiệm và thông tin quản lý mô hình.
 
 ### Truy cập giao diện nội bộ của các ứng dụng trên cụm EKS
+
+_Mã nguồn tham khảo: [modules/cloudflare](/modules/cloudflare), [gitops/apps/cloudflare.yaml](/gitops/apps/cloudflare.yaml)_
 
 ![Cấu hình Cloudflare Tunnel triển khai trong cụm EKS](/asset/image/cloudflare-eks.png)
 
@@ -232,6 +258,8 @@ Sau khi hoàn tất quá trình Helm bootstrap thông qua bước [Tích hợp c
 
 #### Mô hình App-of-Apps và AppProject
 
+_Mã nguồn tham khảo: [gitops/app-of-apps.yaml](/gitops/app-of-apps.yaml), [gitops/projects/appproject.yaml](/gitops/projects/appproject.yaml)_
+
 Hệ thống bao gồm nhiều thành phần hạ tầng như và pipeline huấn luyện mô hình. Nếu mỗi thành phần được khai báo độc lập trong ArgoCD, việc quản lý sẽ trở nên vô cùng phức tạp khi số lượng ứng dụng tăng lên hoặc khi tồn tại quan hệ phụ thuộc giữa chúng. Vì vậy, nhóm sinh viên đã áp dụng mẫu thiết kế **App-of-Apps**, trong đó chỉ một ứng dụng cha duy nhất có tên **k8s-infra-addons** được khai báo và trỏ tới thư mục **gitops/apps/** trong kho mã nguồn Git. ArgoCD sẽ tự động đọc các manifest trong thư mục này để tạo và quản lý các ứng dụng con tương ứng.
 
 ![Mô hình App-of-Apps](/asset/image/appofapp.png)
@@ -241,6 +269,8 @@ Bên cạnh đó, một **AppProject** có tên **platform** được thiết l�
 ![Các Application thuộc AppProject platform](/asset/image/platform-scope.png)
 
 #### Quy trình bootstrap tự động bằng GitHub Actions
+
+_Mã nguồn tham khảo: [.github/workflows/](/.github/workflows)_
 
 Quá trình bootstrap được tự động hóa thông qua workflow trên GitHub Actions. Workflow này sử dụng AWS SSM để thực thi lệnh từ xa trên Bastion Host mà không cần mở cổng SSH, tương tự như quy trình Helm bootstrap đã trình bày ở mục trước.
 
@@ -253,6 +283,8 @@ Tiếp theo, workflow kích hoạt quá trình đồng bộ của ứng dụng c
 Ngoài các cấu hình tĩnh được lưu trong Git, một số tham số chỉ được xác định sau khi Terraform hoàn tất quá trình khởi tạo hạ tầng, chẳng hạn như ARN của IRSA, ID của Amazon EFS hoặc tên cụm EKS. Thay vì lưu trực tiếp các giá trị này trong kho Git, workflow đọc chúng từ Terraform Output và cập nhật vào các đối tượng Application thông qua lệnh _kubectl patch_. Cách tiếp cận này giúp tách biệt cấu hình tĩnh khỏi các giá trị phụ thuộc môi trường, đồng thời duy trì khả năng tái sử dụng của kho Git giữa nhiều môi trường triển khai khác nhau.
 
 ### Tích hợp liên tục cho mã nguồn học sâu đa phương thức
+
+_Mã nguồn tham khảo: [.github/workflows/](/.github/workflows)_
 
 ![Tích hợp liên tục cho mã nguồn học sâu đa phương thức](/asset/image/mul-ci-pipeline-final.png)
 
@@ -267,6 +299,8 @@ Tiếp theo, **Job 2** thực hiện Unit Test bằng pytest để xác minh tí
 Về mặt hạ tầng, ArgoCD liên tục theo dõi kho lưu trữ các tập tin Helm manifest và tự động đồng bộ trạng thái cụm EKS về đúng cấu hình được khai báo.
 
 ### Triển khai training pipeline trên Argo Workflows
+
+_Mã nguồn tham khảo: [gitops/mlops-pipeline/isic](/gitops/mlops-pipeline/isic)_
 
 Sau khi quy trình CI của mã nguồn học sâu đa phương thức hoàn tất và Docker image chứa toàn bộ môi trường huấn luyện được đẩy lên Amazon ECR, Argo Workflows tiếp nhận image đó để thực thi pipeline huấn luyện mô hình học sâu đa phương thức trên cụm EKS.
 
@@ -288,6 +322,8 @@ Nhờ được triển khai dưới dạng Argo Workflow trên Kubernetes, toàn
 
 ### Quản lý và theo dõi thí nghiệm huấn luyện
 
+_Mã nguồn tham khảo: [modules/mlflow](/modules/mlflow), [gitops/apps/mlflow.yaml](/gitops/apps/mlflow.yaml)_
+
 Để hỗ trợ quản lý vòng đời mô hình học máy và tăng khả năng tái lập kết quả nghiên cứu, nhóm sinh viên đã tích hợp **MLflow** như một nền tảng theo dõi và quản lý các thí nghiệm huấn luyện. **MLflow** cho phép ghi nhận toàn bộ thông tin liên quan đến quá trình huấn luyện, bao gồm siêu tham số (hyperparameters), chỉ số đánh giá (metrics) và lịch sử thực thi của từng lần chạy.
 
 Trong khóa luận, **MLflow** được triển khai trên cụm **Amazon EKS** và được tích hợp trực tiếp vào pipeline huấn luyện. Mỗi khi quy trình huấn luyện được kích hoạt từ **Argo Workflows**, các thông tin như kích thước ảnh đầu vào, số lượng mẫu huấn luyện, trọng số lớp, thời gian thực thi và các chỉ số đánh giá sẽ được tự động ghi nhận vào **MLflow**. Điều này giúp giảm thiểu thao tác thủ công, đồng thời đảm bảo tính nhất quán trong việc quản lý các thí nghiệm.
@@ -297,6 +333,8 @@ Hình dưới đây minh họa giao diện **MLflow Tracking** của hệ thốn
 ![Quản lý các thí nghiệm trên MLflow](/asset/image/mlflow-exp.png)
 
 ### Xây dựng dịch vụ suy luận mô hình bằng KServe Custom Predictor
+
+_Mã nguồn tham khảo: [src/model-serving](/src/model-serving)_
 
 Để đưa mô hình học sâu đa phương thức vào môi trường vận hành, nhóm xây dựng một dịch vụ suy luận tùy chỉnh dựa trên KServe Custom Predictor.
 
@@ -311,6 +349,8 @@ Dịch vụ suy luận giao tiếp với bên ngoài tuân theo **KServe V1 Prot
 ![Endpoint của dịch vụ suy luận mô hình](/asset/image/api-syntax.png)
 
 ### Xây dựng quy trình tích hợp và triển khai liên tục cho dịch vụ suy luận
+
+_Mã nguồn tham khảo: [.github/workflows/](/.github/workflows)_
 
 ![Mô hình tích hợp và triển khai liên tục cho dịch vụ suy luận](/asset/image/serving-cicd-pipeline.png)
 
@@ -331,6 +371,8 @@ Sau khi quá trình đồng bộ hoàn tất, dịch vụ suy luận được cu
 ![Kiểm thử kết quả trả về của API](/asset/image/post-method-result.png)
 
 ### Phát triển hệ thống giám sát và trực quan hóa dữ liệu
+
+_Mã nguồn tham khảo: [modules/monitoring](/modules/monitoring)_
 
 Trong môi trường MLOps, việc giám sát không chỉ dừng lại ở quá trình huấn luyện hay triển khai mô hình mà còn phải quan sát đồng thời nhiều lớp hệ thống khác nhau, từ trạng thái vật lý của cụm Kubernetes, tính khả dụng của các dịch vụ ứng dụng, tiến trình và chi phí của vòng huấn luyện, cho đến chất lượng của quy trình CI/CD của hạ tầng. Một sự cố xuất hiện ở bất kỳ tầng nào đều có thể ảnh hưởng trực tiếp đến tính ổn định của hệ thống. Vì vậy, nhóm đã xây dựng hệ thống giám sát tập trung dựa trên Prometheus và Grafana nhằm cung cấp khả năng quan sát toàn diện cho nền tảng MLOps.
 
