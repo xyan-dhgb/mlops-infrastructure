@@ -284,7 +284,7 @@ Ngoài các cấu hình tĩnh được lưu trong Git, một số tham số ch�
 
 ### Tích hợp liên tục cho mã nguồn học sâu đa phương thức
 
-_Mã nguồn tham khảo: [.github/workflows/](/.github/workflows)_
+_Mã nguồn tham khảo: [.github/workflows/](https://github.com/xyan-dhgb/mlops-model/blob/main/.github/workflows/ml-ci-cd.yml)_
 
 ![Tích hợp liên tục cho mã nguồn học sâu đa phương thức](/asset/image/mul-ci-pipeline-final.png)
 
